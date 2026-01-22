@@ -17,6 +17,7 @@ import {
 import { db } from '../firebase';
 import { collection, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
 import ChatListItem from './ChatListItem';
+import ChatWindow from './ChatWindow';
 import { ChatContact } from '../types';
 
 const AtendimentoView: React.FC = () => {
@@ -24,9 +25,9 @@ const AtendimentoView: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState('atendimento');
   const [chats, setChats] = useState<ChatContact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedChat, setSelectedChat] = useState<ChatContact | null>(null);
 
   useEffect(() => {
-    console.log("Conectando ao Firestore para buscar atendimentos reais...");
     const q = query(
       collection(db, "chats"),
       orderBy("updatedAt", "desc")
@@ -35,12 +36,11 @@ const AtendimentoView: React.FC = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const chatList: ChatContact[] = snapshot.docs.map(doc => {
         const data = doc.data();
-
-        // Formatação simples do tempo
         let timeLabel = 'agora';
         if (data.updatedAt instanceof Timestamp) {
           const date = data.updatedAt.toDate();
-          timeLabel = `há ${Math.floor((new Date().getTime() - date.getTime()) / 60000)} min`;
+          const diff = Math.floor((new Date().getTime() - date.getTime()) / 60000);
+          timeLabel = diff < 1 ? 'agora' : `há ${diff} min`;
         }
 
         return {
@@ -66,14 +66,14 @@ const AtendimentoView: React.FC = () => {
   return (
     <div className="flex h-full w-full bg-gray-50 overflow-hidden font-sans">
       {/* Left Sidebar (Chat List) */}
-      <div className="w-[480px] bg-white flex flex-col border-r border-gray-200 overflow-hidden shadow-xl z-10">
-        {/* Top Header Tabs - Inbox, Pausados, Resolvidos, Busca */}
+      <div className="w-[480px] bg-white flex flex-col border-r border-gray-200 overflow-hidden shadow-xl z-10 shrink-0">
+        {/* Top Header Tabs */}
         <div className="flex border-b border-gray-100 h-16 shrink-0 bg-white">
           <button
             onClick={() => setActiveTopTab('inbox')}
             className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'inbox' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
           >
-            <Download size={20} className={activeTopTab === 'inbox' ? 'scale-110' : ''} />
+            <Download size={20} />
             <span className="text-[11px] font-black uppercase tracking-wider">Inbox</span>
             {activeTopTab === 'inbox' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
@@ -83,29 +83,23 @@ const AtendimentoView: React.FC = () => {
           >
             <Pause size={20} />
             <span className="text-[11px] font-black uppercase tracking-wider">Pausados</span>
-            {activeTopTab === 'pausados' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
+            {activeSubTab === 'pausados' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
-          <button
-            onClick={() => setActiveTopTab('resolvidos')}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'resolvidos' ? 'text-blue-600' : 'text-gray-400'}`}
-          >
+          <button onClick={() => setActiveTopTab('resolvidos')} className={`flex-1 flex flex-col items-center justify-center gap-1 relative ${activeTopTab === 'resolvidos' ? 'text-blue-600' : 'text-gray-400'}`}>
             <CheckCircle size={20} />
             <span className="text-[11px] font-black uppercase tracking-wider">Resolvidos</span>
             {activeTopTab === 'resolvidos' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
-          <button
-            onClick={() => setActiveTopTab('busca')}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'busca' ? 'text-blue-600' : 'text-gray-400'}`}
-          >
+          <button onClick={() => setActiveTopTab('busca')} className={`flex-1 flex flex-col items-center justify-center gap-1 relative ${activeTopTab === 'busca' ? 'text-blue-600' : 'text-gray-400'}`}>
             <Search size={20} />
             <span className="text-[11px] font-black uppercase tracking-wider">Busca</span>
             {activeTopTab === 'busca' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
         </div>
 
-        {/* Action Bar - Novo, Switches, Setores */}
+        {/* Action Bar */}
         <div className="p-4 border-b border-gray-50 flex items-center justify-between shrink-0 bg-[#fafafa]">
-          <button className="bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-lg shadow-emerald-100 active:scale-95">
+          <button className="bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-lg active:scale-95">
             <Plus size={18} /> NOVO
           </button>
 
@@ -117,29 +111,19 @@ const AtendimentoView: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Filter size={18} className="text-gray-400" />
-              <div className="w-10 h-5 bg-gray-200 rounded-full relative cursor-pointer p-0.5 shadow-inner">
-                <div className="absolute left-0.5 w-4 h-4 bg-white rounded-full shadow-md" />
-              </div>
-            </div>
-
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-xs text-gray-700 font-bold hover:bg-white hover:shadow-sm transition-all bg-transparent">
+            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-xs text-gray-700 font-bold hover:bg-white transition-all bg-transparent">
               Setores <ChevronDown size={14} />
             </button>
           </div>
         </div>
 
-        {/* Sub-tabs - ATENDIMENTO, AGUARDANDO, NO BOT, GRUPOS */}
+        {/* Sub-tabs */}
         <div className="flex bg-white shrink-0 border-b border-gray-50">
-          <button
-            onClick={() => setActiveSubTab('atendimento')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'atendimento' ? 'text-blue-600' : 'text-gray-400'}`}
-          >
+          <button onClick={() => setActiveSubTab('atendimento')} className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'atendimento' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className="relative mb-1">
               <MessageSquare size={24} strokeWidth={2.5} />
               {chats.length > 0 && (
-                <span className="absolute -top-2 -right-3 bg-blue-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-black shadow-lg shadow-blue-200 border-2 border-white">
+                <span className="absolute -top-2 -right-3 bg-blue-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-black shadow-lg border-2 border-white">
                   {chats.length}
                 </span>
               )}
@@ -147,83 +131,50 @@ const AtendimentoView: React.FC = () => {
             <span className="text-[10px] font-black uppercase tracking-[0.1em]">Atendimento</span>
             {activeSubTab === 'atendimento' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
           </button>
-          <button
-            onClick={() => setActiveSubTab('aguardando')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'aguardando' ? 'text-blue-600' : 'text-gray-400'}`}
-          >
+          <button onClick={() => setActiveSubTab('aguardando')} className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'aguardando' ? 'text-blue-600' : 'text-gray-400'}`}>
             <Clock size={24} strokeWidth={2.5} className="mb-1" />
             <span className="text-[10px] font-black uppercase tracking-[0.1em]">Aguardando</span>
             {activeSubTab === 'aguardando' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
           </button>
-          <button
-            onClick={() => setActiveSubTab('nobot')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'nobot' ? 'text-blue-600' : 'text-gray-400'}`}
-          >
-            <Bot size={24} strokeWidth={2.5} className="mb-1" />
-            <span className="text-[10px] font-black uppercase tracking-[0.1em]">No Bot</span>
-            {activeSubTab === 'nobot' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
-          </button>
-          <button
-            onClick={() => setActiveSubTab('grupos')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'grupos' ? 'text-blue-600' : 'text-gray-400'}`}
-          >
-            <div className="relative mb-1">
-              <UsersIcon size={24} strokeWidth={2.5} />
-            </div>
-            <span className="text-[10px] font-black uppercase tracking-[0.1em]">Grupos</span>
-            {activeSubTab === 'grupos' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
-          </button>
         </div>
 
-        {/* Chat List Scrollable Area */}
+        {/* Chat List */}
         <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
           {loading ? (
-            <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
-              <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" />
-              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Carregando Chats...</p>
-            </div>
-          ) : chats.length > 0 ? (
-            chats.map((chat) => (
-              <ChatListItem key={chat.id} chat={chat} />
-            ))
+            <div className="h-full flex flex-col items-center justify-center p-8"><div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" /></div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center p-12 text-center text-gray-400 space-y-4">
-              <div className="w-20 h-20 bg-gray-50 rounded-3xl flex items-center justify-center text-gray-200">
-                <MessageSquare size={40} />
+            chats.map((chat) => (
+              <div key={chat.id} onClick={() => setSelectedChat(chat)} className={selectedChat?.id === chat.id ? 'bg-blue-50' : ''}>
+                <ChatListItem chat={chat} />
               </div>
-              <div>
-                <h4 className="font-black text-gray-800 uppercase tracking-wider mb-2">Sem conversas</h4>
-                <p className="text-xs leading-relaxed max-w-[200px] mx-auto">Mande um "Oi" do seu WhatsApp para aparecer aqui em tempo real.</p>
-              </div>
-            </div>
+            ))
           )}
         </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* Main Content Area (Chat Window) */}
       <div className="flex-1 bg-[#f1f5f9] flex flex-col relative overflow-hidden">
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
-          style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
-
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-12 z-10">
-          <div className="max-w-md w-full bg-white rounded-[3rem] p-16 shadow-2xl border border-gray-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-500">
-            <div className="w-32 h-32 bg-blue-50 rounded-[2.5rem] flex items-center justify-center text-blue-500 mb-8 border-4 border-white shadow-xl rotate-3">
-              <MessageSquare size={56} strokeWidth={1.5} />
+        {selectedChat ? (
+          <ChatWindow chatId={selectedChat.id} contactName={selectedChat.name} />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-12 z-10">
+            <div className="max-w-md w-full bg-white rounded-[3rem] p-16 shadow-2xl border border-gray-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-500">
+              <div className="w-32 h-32 bg-blue-50 rounded-[2.5rem] flex items-center justify-center text-blue-500 mb-8 border-4 border-white shadow-xl rotate-3">
+                <MessageSquare size={56} strokeWidth={1.5} />
+              </div>
+              <h2 className="text-2xl font-black text-gray-800 mb-4 uppercase tracking-tight">Pronto para conversar?</h2>
+              <p className="text-gray-400 font-medium text-sm leading-relaxed">
+                Selecione um atendimento na lista ao lado para visualizar o histórico de mensagens e responder.
+              </p>
             </div>
-            <h2 className="text-2xl font-black text-gray-800 mb-4 uppercase tracking-tight">Pronto para conversar?</h2>
-            <p className="text-gray-400 font-medium text-sm leading-relaxed">
-              Selecione um atendimento na lista ao lado para visualizar o histórico de mensagens e responder.
-            </p>
           </div>
-        </div>
+        )}
       </div>
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
       `}</style>
     </div>
   );
