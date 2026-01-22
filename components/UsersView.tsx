@@ -49,7 +49,9 @@ const UsersView: React.FC = () => {
     const [robots, setRobots] = useState<AIRobot[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingRobot, setEditingRobot] = useState<Partial<AIRobot> | null>(null);
+    const [editingUser, setEditingUser] = useState<Partial<HumanUser> | null>(null);
 
     useEffect(() => {
         // Escutar Humanos (Mock ou real se tiver coleção users)
@@ -104,6 +106,36 @@ const UsersView: React.FC = () => {
         }
     };
 
+    const handleSaveUser = async () => {
+        if (!editingUser?.name || !editingUser?.email) return alert("Preencha o nome e email!");
+
+        const id = editingUser.id || `user_${Date.now()}`;
+        const userData = {
+            ...editingUser,
+            id,
+            status: editingUser.status || 'active',
+            role: editingUser.role || 'Agente',
+            lastSeen: editingUser.lastSeen || serverTimestamp()
+        };
+
+        try {
+            await setDoc(doc(db, "users", id), userData);
+            setIsUserModalOpen(false);
+            setEditingUser(null);
+        } catch (e) {
+            alert("Erro ao salvar usuário");
+        }
+    };
+
+    const handleDeleteUser = async (id: string) => {
+        if (!confirm("Remover este usuário do sistema?")) return;
+        try {
+            await deleteDoc(doc(db, "users", id));
+        } catch (e) {
+            alert("Erro ao excluir");
+        }
+    };
+
     return (
         <div className="h-full w-full bg-[#f8fafc] flex flex-col overflow-hidden">
             {/* Header */}
@@ -123,6 +155,9 @@ const UsersView: React.FC = () => {
                             if (activeTab === 'IA') {
                                 setEditingRobot({});
                                 setIsModalOpen(true);
+                            } else {
+                                setEditingUser({});
+                                setIsUserModalOpen(true);
                             }
                         }}
                         className="bg-black text-white px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-gray-900 transition-all shadow-lg active:scale-95"
@@ -162,15 +197,27 @@ const UsersView: React.FC = () => {
                                     <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 font-bold text-xl border border-blue-100">
                                         {h.name.charAt(0)}
                                     </div>
-                                    <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-tighter">ONLINE</span>
+                                    <span className={`px-3 py-1 ${h.status === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'} text-[10px] font-black rounded-full uppercase tracking-tighter`}>
+                                        {h.status === 'active' ? 'ONLINE' : 'OFFLINE'}
+                                    </span>
                                 </div>
                                 <h3 className="font-bold text-gray-800 mb-1">{h.name}</h3>
                                 <p className="text-xs text-gray-500 mb-4">{h.email}</p>
                                 <div className="flex items-center justify-between pt-4 border-t border-gray-50">
                                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{h.role || 'Agente'}</span>
                                     <div className="flex gap-2">
-                                        <button className="p-2 text-gray-400 hover:text-blue-500 transition-colors"><Edit2 size={16} /></button>
-                                        <button className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                        <button
+                                            onClick={() => { setEditingUser(h); setIsUserModalOpen(true); }}
+                                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                                        >
+                                            <Edit2 size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteUser(h.id)}
+                                            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -399,6 +446,97 @@ const UsersView: React.FC = () => {
                                 className="flex-[2] bg-emerald-500 text-white font-bold py-4 rounded-2xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-100 active:scale-95 flex items-center justify-center gap-2"
                             >
                                 <Save size={18} /> SALVAR E TREINAR AGORA
+                            </button>
+                        </footer>
+                    </div>
+                </div>
+            )}
+
+            {/* User Modal */}
+            {isUserModalOpen && (
+                <div className="fixed inset-0 z-[100] flex justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white w-full max-w-lg h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+                        <header className="px-8 py-6 border-b border-gray-100 flex items-center justify-between shrink-0 bg-blue-50/30">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-100">
+                                    <Users size={24} />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-gray-800 uppercase tracking-tight">Novo Usuário</h2>
+                                    <p className="text-xs text-gray-500 font-medium italic">Adicione um novo membro à sua equipe de atendimento.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => { setIsUserModalOpen(false); setEditingUser(null); }}
+                                className="p-3 bg-white hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-2xl border border-gray-200 transition-all active:scale-95"
+                            >
+                                <X size={20} />
+                            </button>
+                        </header>
+
+                        <div className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Nome Completo</label>
+                                <input
+                                    type="text"
+                                    placeholder="Nome do usuário"
+                                    className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                    value={editingUser?.name || ''}
+                                    onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">E-mail de Acesso</label>
+                                <input
+                                    type="email"
+                                    placeholder="email@empresa.com"
+                                    className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                    value={editingUser?.email || ''}
+                                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Função / Cargo</label>
+                                    <select
+                                        className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 appearance-none transition-all cursor-pointer"
+                                        value={editingUser?.role || 'Agente'}
+                                        onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                                    >
+                                        <option value="Administrador">Administrador</option>
+                                        <option value="Supervisor">Supervisor</option>
+                                        <option value="Agente">Agente</option>
+                                        <option value="Estagiário">Estagiário</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Status</label>
+                                    <select
+                                        className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 appearance-none transition-all cursor-pointer"
+                                        value={editingUser?.status || 'active'}
+                                        onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value as any })}
+                                    >
+                                        <option value="active">Ativo</option>
+                                        <option value="inactive">Inativo</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <footer className="px-8 py-6 border-t border-gray-100 bg-[#f8fafc] flex gap-4 shrink-0">
+                            <button
+                                onClick={() => { setIsUserModalOpen(false); setEditingUser(null); }}
+                                className="flex-1 bg-white border border-gray-200 text-gray-600 font-bold py-4 rounded-2xl hover:bg-gray-50 transition-all active:scale-95"
+                            >
+                                CANCELAR
+                            </button>
+                            <button
+                                onClick={handleSaveUser}
+                                className="flex-[2] bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <Save size={18} /> SALVAR USUÁRIO
                             </button>
                         </footer>
                     </div>
