@@ -1,5 +1,5 @@
 
-export type NavigationPage = 'atendimento' | 'dashboard' | 'contatos' | 'relatorios' | 'configuracoes' | 'agendamento' | 'tarefas' | 'bots' | 'usuarios' | 'campos_personalizados' | 'setores';
+export type NavigationPage = 'atendimento' | 'dashboard' | 'contatos' | 'relatorios' | 'configuracoes' | 'agendamento' | 'tarefas' | 'bots' | 'usuarios' | 'campos_personalizados' | 'setores' | 'tags';
 
 export interface ChatContact {
   id: string;

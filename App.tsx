@@ -25,6 +25,7 @@ import TasksView from './components/TasksView';
 import UsersView from './components/UsersView';
 import CustomFieldsView from './components/CustomFieldsView';
 import SectorsView from './components/SectorsView';
+import TagsView from './components/TagsView';
 import { NavigationPage } from './types';
 
 const HeaderDropdown = ({ label, icon: Icon, items, active, onClick }: { label: string, icon: any, items?: any[], active?: boolean, onClick?: () => void }) => {
@@ -106,7 +107,7 @@ const App: React.FC = () => {
     { label: 'Contatos', icon: Users, action: () => setCurrentPage('contatos') },
     { label: 'Mensagens', icon: MessageSquare },
     { label: 'Agendamento', icon: Calendar, action: () => setCurrentPage('agendamento') },
-    { label: 'Tags', icon: Zap },
+    { label: 'Tags', icon: Zap, action: () => setCurrentPage('tags') },
   ];
 
   const adminItems = [
@@ -163,6 +164,7 @@ const App: React.FC = () => {
           {currentPage === 'usuarios' && <UsersView />}
           {currentPage === 'campos_personalizados' && <CustomFieldsView />}
           {currentPage === 'setores' && <SectorsView />}
+          {currentPage === 'tags' && <TagsView />}
 
           {['dashboard', 'bots', 'relatorios'].includes(currentPage) && (
             <div className="h-full flex items-center justify-center text-gray-400 flex-col space-y-4">
