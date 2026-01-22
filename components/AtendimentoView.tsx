@@ -1,193 +1,230 @@
 
-import React, { useState } from 'react';
-import { 
-  Inbox, 
-  Pause, 
-  CheckCircle, 
-  Search, 
-  Plus, 
-  ChevronDown, 
-  MessageSquare, 
-  Clock, 
-  Bot, 
+import React, { useState, useEffect } from 'react';
+import {
+  Pause,
+  CheckCircle,
+  Search,
+  Plus,
+  ChevronDown,
+  MessageSquare,
+  Clock,
+  Bot,
   Users as UsersIcon,
   X,
-  LayoutGrid,
-  Maximize2,
-  HelpCircle,
-  MoreHorizontal,
   Download,
   Filter
 } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
 import ChatListItem from './ChatListItem';
 import { ChatContact } from '../types';
-
-const MOCK_CHATS: ChatContact[] = [
-  {
-    id: '1',
-    name: 'Jessica Silva',
-    lastMessage: 'Esse é presencial?',
-    time: 'há cerca de 7 horas',
-    agent: 'Jayana Pinheiro',
-    sector: 'Comercial Ma',
-    tags: ['MBAGFCA', '+5'],
-    avatarUrl: 'https://picsum.photos/seed/jessica/100/100',
-  },
-  {
-    id: '2',
-    name: 'Leonardo',
-    lastMessage: 'Ou posso fazer na cidade mais próxima?',
-    time: 'há cerca de 9 horas',
-    agent: 'Erika',
-    sector: 'Comercial PA',
-    tags: ['Nacional', 'Comercial Pará'],
-    avatarUrl: 'https://picsum.photos/seed/leonardo/100/100',
-    unreadCount: 4
-  }
-];
 
 const AtendimentoView: React.FC = () => {
   const [activeTopTab, setActiveTopTab] = useState('inbox');
   const [activeSubTab, setActiveSubTab] = useState('atendimento');
+  const [chats, setChats] = useState<ChatContact[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    console.log("Conectando ao Firestore para buscar atendimentos reais...");
+    const q = query(
+      collection(db, "chats"),
+      orderBy("updatedAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const chatList: ChatContact[] = snapshot.docs.map(doc => {
+        const data = doc.data();
+
+        // Formatação simples do tempo
+        let timeLabel = 'agora';
+        if (data.updatedAt instanceof Timestamp) {
+          const date = data.updatedAt.toDate();
+          timeLabel = `há ${Math.floor((new Date().getTime() - date.getTime()) / 60000)} min`;
+        }
+
+        return {
+          id: doc.id,
+          name: data.name || data.id,
+          lastMessage: data.lastMessage || '',
+          time: timeLabel,
+          agent: data.agent || 'Sem Agente',
+          sector: data.sector || 'Geral',
+          tags: data.tags || [],
+          avatarUrl: `https://ui-avatars.com/api/?name=${data.name || data.id}&background=random`,
+          unreadCount: data.unreadCount || 0
+        };
+      });
+
+      setChats(chatList);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   return (
-    <div className="flex h-full w-full bg-gray-50 overflow-hidden">
+    <div className="flex h-full w-full bg-gray-50 overflow-hidden font-sans">
       {/* Left Sidebar (Chat List) */}
-      <div className="w-[480px] bg-white flex flex-col border-r border-gray-200 overflow-hidden">
+      <div className="w-[480px] bg-white flex flex-col border-r border-gray-200 overflow-hidden shadow-xl z-10">
         {/* Top Header Tabs - Inbox, Pausados, Resolvidos, Busca */}
-        <div className="flex border-b border-gray-100 h-16 shrink-0">
-          <button 
+        <div className="flex border-b border-gray-100 h-16 shrink-0 bg-white">
+          <button
             onClick={() => setActiveTopTab('inbox')}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'inbox' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-600'}`}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'inbox' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
           >
             <Download size={20} className={activeTopTab === 'inbox' ? 'scale-110' : ''} />
-            <span className="text-[11px] font-bold">Inbox</span>
-            {activeTopTab === 'inbox' && <div className="absolute bottom-0 w-[80%] h-0.5 bg-blue-500 rounded-t-full" />}
+            <span className="text-[11px] font-black uppercase tracking-wider">Inbox</span>
+            {activeTopTab === 'inbox' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
-          <button 
+          <button
             onClick={() => setActiveTopTab('pausados')}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'pausados' ? 'text-blue-500' : 'text-gray-400 hover:text-gray-600'}`}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'pausados' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
           >
             <Pause size={20} />
-            <span className="text-[11px] font-bold">Pausados</span>
-            {activeTopTab === 'pausados' && <div className="absolute bottom-0 w-[80%] h-0.5 bg-blue-500 rounded-t-full" />}
+            <span className="text-[11px] font-black uppercase tracking-wider">Pausados</span>
+            {activeTopTab === 'pausados' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
-          <button 
+          <button
             onClick={() => setActiveTopTab('resolvidos')}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'resolvidos' ? 'text-blue-500' : 'text-gray-400'}`}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'resolvidos' ? 'text-blue-600' : 'text-gray-400'}`}
           >
             <CheckCircle size={20} />
-            <span className="text-[11px] font-bold">Resolvidos</span>
-            {activeTopTab === 'resolvidos' && <div className="absolute bottom-0 w-[80%] h-0.5 bg-blue-500 rounded-t-full" />}
+            <span className="text-[11px] font-black uppercase tracking-wider">Resolvidos</span>
+            {activeTopTab === 'resolvidos' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
-          <button 
+          <button
             onClick={() => setActiveTopTab('busca')}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'busca' ? 'text-blue-500' : 'text-gray-400'}`}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all relative ${activeTopTab === 'busca' ? 'text-blue-600' : 'text-gray-400'}`}
           >
             <Search size={20} />
-            <span className="text-[11px] font-bold">Busca</span>
-            {activeTopTab === 'busca' && <div className="absolute bottom-0 w-[80%] h-0.5 bg-blue-500 rounded-t-full" />}
+            <span className="text-[11px] font-black uppercase tracking-wider">Busca</span>
+            {activeTopTab === 'busca' && <div className="absolute bottom-0 w-[60%] h-1 bg-blue-600 rounded-t-full" />}
           </button>
         </div>
 
         {/* Action Bar - Novo, Switches, Setores */}
-        <div className="p-4 border-b border-gray-50 flex items-center justify-between shrink-0">
-          <button className="bg-[#10b981] hover:bg-[#059669] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all shadow-sm">
-            <Plus size={16} /> NOVO
+        <div className="p-4 border-b border-gray-50 flex items-center justify-between shrink-0 bg-[#fafafa]">
+          <button className="bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-lg shadow-emerald-100 active:scale-95">
+            <Plus size={18} /> NOVO
           </button>
-          
-          <div className="flex items-center gap-4">
-             {/* Switches from screenshot */}
-             <div className="flex items-center gap-2">
-               <UsersIcon size={18} className="text-gray-400" />
-               <div className="w-10 h-5 bg-[#10b981] rounded-full relative cursor-pointer p-0.5">
-                  <div className="absolute right-0.5 w-4 h-4 bg-white rounded-full shadow-sm" />
-               </div>
-             </div>
-             
-             <div className="flex items-center gap-2">
-               <Filter size={18} className="text-gray-400" />
-               <div className="w-10 h-5 bg-gray-200 rounded-full relative cursor-pointer p-0.5">
-                  <div className="absolute left-0.5 w-4 h-4 bg-white rounded-full shadow-sm" />
-               </div>
-             </div>
 
-             <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 font-semibold hover:bg-gray-50">
-                Setores <ChevronDown size={14} />
-             </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <UsersIcon size={18} className="text-gray-400" />
+              <div className="w-10 h-5 bg-emerald-500 rounded-full relative cursor-pointer p-0.5 shadow-inner">
+                <div className="absolute right-0.5 w-4 h-4 bg-white rounded-full shadow-md" />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Filter size={18} className="text-gray-400" />
+              <div className="w-10 h-5 bg-gray-200 rounded-full relative cursor-pointer p-0.5 shadow-inner">
+                <div className="absolute left-0.5 w-4 h-4 bg-white rounded-full shadow-md" />
+              </div>
+            </div>
+
+            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-xs text-gray-700 font-bold hover:bg-white hover:shadow-sm transition-all bg-transparent">
+              Setores <ChevronDown size={14} />
+            </button>
           </div>
         </div>
 
         {/* Sub-tabs - ATENDIMENTO, AGUARDANDO, NO BOT, GRUPOS */}
-        <div className="flex bg-white shrink-0">
-          <button 
+        <div className="flex bg-white shrink-0 border-b border-gray-50">
+          <button
             onClick={() => setActiveSubTab('atendimento')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'atendimento' ? 'text-blue-500' : 'text-gray-400'}`}
+            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'atendimento' ? 'text-blue-600' : 'text-gray-400'}`}
           >
             <div className="relative mb-1">
-              <MessageSquare size={22} />
-              <span className="absolute -top-2 -right-3 bg-[#0ea5e9] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">21</span>
+              <MessageSquare size={24} strokeWidth={2.5} />
+              {chats.length > 0 && (
+                <span className="absolute -top-2 -right-3 bg-blue-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-black shadow-lg shadow-blue-200 border-2 border-white">
+                  {chats.length}
+                </span>
+              )}
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider">Atendimento</span>
-            {activeSubTab === 'atendimento' && <div className="absolute bottom-0 w-full h-0.5 bg-blue-500" />}
+            <span className="text-[10px] font-black uppercase tracking-[0.1em]">Atendimento</span>
+            {activeSubTab === 'atendimento' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
           </button>
-          <button 
+          <button
             onClick={() => setActiveSubTab('aguardando')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'aguardando' ? 'text-blue-500' : 'text-gray-400'}`}
+            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'aguardando' ? 'text-blue-600' : 'text-gray-400'}`}
           >
-            <Clock size={22} className="mb-1" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Aguardando</span>
-            {activeSubTab === 'aguardando' && <div className="absolute bottom-0 w-full h-0.5 bg-blue-500" />}
+            <Clock size={24} strokeWidth={2.5} className="mb-1" />
+            <span className="text-[10px] font-black uppercase tracking-[0.1em]">Aguardando</span>
+            {activeSubTab === 'aguardando' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
           </button>
-          <button 
+          <button
             onClick={() => setActiveSubTab('nobot')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'nobot' ? 'text-blue-500' : 'text-gray-400'}`}
+            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'nobot' ? 'text-blue-600' : 'text-gray-400'}`}
           >
-            <Bot size={22} className="mb-1" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">No Bot</span>
-            {activeSubTab === 'nobot' && <div className="absolute bottom-0 w-full h-0.5 bg-blue-500" />}
+            <Bot size={24} strokeWidth={2.5} className="mb-1" />
+            <span className="text-[10px] font-black uppercase tracking-[0.1em]">No Bot</span>
+            {activeSubTab === 'nobot' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
           </button>
-          <button 
+          <button
             onClick={() => setActiveSubTab('grupos')}
-            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'grupos' ? 'text-blue-500' : 'text-gray-400'}`}
+            className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'grupos' ? 'text-blue-600' : 'text-gray-400'}`}
           >
-             <div className="relative mb-1">
-              <UsersIcon size={22} />
-              <span className="absolute -top-2 -right-2 bg-[#0ea5e9] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">1</span>
+            <div className="relative mb-1">
+              <UsersIcon size={24} strokeWidth={2.5} />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider">Grupos</span>
-            {activeSubTab === 'grupos' && <div className="absolute bottom-0 w-full h-0.5 bg-blue-500" />}
+            <span className="text-[10px] font-black uppercase tracking-[0.1em]">Grupos</span>
+            {activeSubTab === 'grupos' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
           </button>
         </div>
 
         {/* Chat List Scrollable Area */}
-        <div className="flex-1 overflow-y-auto bg-[#fafafa]">
-          {MOCK_CHATS.length > 0 ? (
-            MOCK_CHATS.map((chat) => (
+        <div className="flex-1 overflow-y-auto bg-white custom-scrollbar">
+          {loading ? (
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+              <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" />
+              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Carregando Chats...</p>
+            </div>
+          ) : chats.length > 0 ? (
+            chats.map((chat) => (
               <ChatListItem key={chat.id} chat={chat} />
             ))
           ) : (
-            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-gray-400">
-               <h4 className="font-bold text-gray-800 mb-1">Nada aqui!</h4>
-               <p className="text-sm">Nenhum atendimento encontrado com esse status ou termo pesquisado.</p>
+            <div className="h-full flex flex-col items-center justify-center p-12 text-center text-gray-400 space-y-4">
+              <div className="w-20 h-20 bg-gray-50 rounded-3xl flex items-center justify-center text-gray-200">
+                <MessageSquare size={40} />
+              </div>
+              <div>
+                <h4 className="font-black text-gray-800 uppercase tracking-wider mb-2">Sem conversas</h4>
+                <p className="text-xs leading-relaxed max-w-[200px] mx-auto">Mande um "Oi" do seu WhatsApp para aparecer aqui em tempo real.</p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 bg-white flex flex-col relative">
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-12 bg-gray-50/50">
-          <div className="max-w-md w-full bg-white rounded-3xl p-12 shadow-sm border border-gray-100 flex flex-col items-center text-center">
-             <div className="w-24 h-24 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-200 mb-6">
-                <X size={48} strokeWidth={1.5} />
-             </div>
-             <p className="text-gray-500 font-medium text-lg leading-relaxed">
-               Selecione um atendimento para visualizar as mensagens e começar a conversar.
-             </p>
+      <div className="flex-1 bg-[#f1f5f9] flex flex-col relative overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+          style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-12 z-10">
+          <div className="max-w-md w-full bg-white rounded-[3rem] p-16 shadow-2xl border border-gray-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-500">
+            <div className="w-32 h-32 bg-blue-50 rounded-[2.5rem] flex items-center justify-center text-blue-500 mb-8 border-4 border-white shadow-xl rotate-3">
+              <MessageSquare size={56} strokeWidth={1.5} />
+            </div>
+            <h2 className="text-2xl font-black text-gray-800 mb-4 uppercase tracking-tight">Pronto para conversar?</h2>
+            <p className="text-gray-400 font-medium text-sm leading-relaxed">
+              Selecione um atendimento na lista ao lado para visualizar o histórico de mensagens e responder.
+            </p>
           </div>
         </div>
       </div>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      `}</style>
     </div>
   );
 };
