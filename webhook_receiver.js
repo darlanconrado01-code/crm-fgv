@@ -26,6 +26,22 @@ const PORT = 3021;
 app.use(cors());
 app.use(bodyParser.json());
 
+// Mapeamento de DDD para Estado (UF)
+const dddToState = {
+    '11': 'SP', '12': 'SP', '13': 'SP', '14': 'SP', '15': 'SP', '16': 'SP', '17': 'SP', '18': 'SP', '19': 'SP',
+    '21': 'RJ', '22': 'RJ', '24': 'RJ',
+    '27': 'ES', '28': 'ES',
+    '31': 'MG', '32': 'MG', '33': 'MG', '34': 'MG', '35': 'MG', '37': 'MG', '38': 'MG',
+    '41': 'PR', '42': 'PR', '43': 'PR', '44': 'PR', '45': 'PR', '46': 'PR',
+    '47': 'SC', '48': 'SC', '49': 'SC',
+    '51': 'RS', '53': 'RS', '54': 'RS', '55': 'RS',
+    '61': 'DF', '62': 'GO', '63': 'TO', '64': 'GO', '65': 'MT', '66': 'MT', '67': 'MS', '68': 'AC', '69': 'RO',
+    '71': 'BA', '73': 'BA', '74': 'BA', '75': 'BA', '77': 'BA',
+    '79': 'SE',
+    '81': 'PE', '82': 'AL', '83': 'PB', '84': 'RN', '85': 'CE', '86': 'PI', '87': 'PE', '88': 'CE', '89': 'PI',
+    '91': 'PA', '92': 'AM', '93': 'PA', '94': 'PA', '95': 'RR', '96': 'AP', '97': 'AM', '98': 'MA', '99': 'MA'
+};
+
 // Rota para receber Webhook da Evolution API
 app.post('/webhook', async (req, res) => {
     try {
@@ -124,6 +140,28 @@ app.post('/webhook', async (req, res) => {
             }
 
             // 1. Criar/Atualizar na coleção 'chats'
+            const phoneStr = String(phone);
+            const ddd = phoneStr.length >= 2 ? phoneStr.substring(2, 4) : ''; // Assume formato 55XX...
+            const detectedState = dddToState[ddd] || '';
+            const stateFieldId = 'field_1769080430532'; // ID do campo ESTADO
+
+            // Buscar robô de primeiro contato para atribuição IMEDIATA se necessário
+            let initialAgent = chatDoc.exists() ? chatDoc.data().agent : null;
+            let initialAgentId = chatDoc.exists() ? chatDoc.data().agentId : null;
+            let initialSector = chatDoc.exists() ? chatDoc.data().sector : 'Geral';
+
+            if (!initialAgent && chatStatus === 'bot') {
+                const botQuery = query(collection(db, "ai_agents"), where("isFirstContact", "==", true), where("status", "==", "active"), limit(1));
+                const botSnap = await getDocs(botQuery);
+                if (!botSnap.empty) {
+                    const bData = botSnap.docs[0].data();
+                    initialAgent = bData.name;
+                    initialAgentId = botSnap.docs[0].id;
+                    initialSector = bData.sector || 'Geral';
+                    console.log(`-> Atribuindo lead ao robô: ${initialAgent}`);
+                }
+            }
+
             await setDoc(chatRef, {
                 ...payload,
                 ...data,
@@ -135,11 +173,23 @@ app.post('/webhook', async (req, res) => {
                 lastMessage: messageText,
                 updatedAt: serverTimestamp(),
                 unreadCount: fromMe ? 0 : (currentUnread + 1),
-                status: chatStatus
+                status: chatStatus,
+                agent: initialAgent,
+                agentId: initialAgentId,
+                sector: initialSector
             }, { merge: true });
 
             // 2. Criar/Atualizar na coleção 'contacts' (Base Permanente)
             const contactRef = doc(db, "contacts", phone);
+            const contactDoc = await getDoc(contactRef);
+            let customData = contactDoc.exists() ? (contactDoc.data().customData || {}) : {};
+
+            // Auto-preencher estado se estiver vazio
+            if (!customData[stateFieldId] && detectedState) {
+                customData[stateFieldId] = detectedState;
+                console.log(`-> UF identificada pelo DDD: ${detectedState}`);
+            }
+
             await setDoc(contactRef, {
                 id: phone,
                 phone: phone,
@@ -148,7 +198,8 @@ app.post('/webhook', async (req, res) => {
                 remoteJidAlt: remoteJidAlt,
                 lastMessage: messageText,
                 lastInteraction: serverTimestamp(),
-                updatedAt: serverTimestamp()
+                updatedAt: serverTimestamp(),
+                customData
             }, { merge: true });
 
             // 3. Salvar Mensagem (SALVAR ANTES DO BOT PARA ORDEM CORRETA)
@@ -184,7 +235,7 @@ app.post('/webhook', async (req, res) => {
                         // ATRIBUIR RESPONSÁVEL E SETOR (Garantir que o robô é o dono do lead no setor correto)
                         await setDoc(chatRef, {
                             agent: bot.name,
-                            agentId: bot.id,
+                            agentId: botSnap.docs[0].id, // Usar o ID do documento do bot
                             sector: bot.sector || 'Geral'
                         }, { merge: true });
 
@@ -241,22 +292,22 @@ app.post('/webhook', async (req, res) => {
                         }
 
                         if (openaiKey) {
-                            const systemPrompt = `Você é um assistente virtual profissional da ISAN/FGV.
-REGRAS:
-1. Se o histórico mostrar que você já se apresentou, NÃO se apresente novamente.
-2. Responda diretamente à dúvida do cliente.
-3. Seja curto, natural e profissional.
-4. Use o contexto abaixo para guiar suas respostas.
+                            const systemPrompt = `Você é um assistente virtual profissional da ISAN/FGV. Seu objetivo é ajudar o cliente e, ao mesmo tempo, qualificar o lead de forma natural e empática.
+REGRAS DE OURO:
+1. NÃO seja um robô de formulário. NÃO faça uma lista de perguntas.
+2. Seja empático. Se o cliente disser que está com pressa ou não quiser dar uma info, tudo bem! Prossiga com a ajuda.
+3. Se o histórico mostrar que você já se apresentou, NÃO se apresente novamente. Curto e direto!
+4. Use o contexto abaixo para guiar suas respostas técnicas.
 
-SUAS MISSÕES ATUAIS:
-Você deve tentar coletar as seguintes informações de forma suave durante a conversa:
+MISSÃO DE QUALIFICAÇÃO (COLETA SUAVE):
+Ao longo da conversa, tente descobrir as seguintes informações sem forçar a barra:
 ${missionInstructions || 'Nenhuma missão específica.'}
 
-EXTRAÇÃO DE DADOS:
-Sempre que o usuário fornecer uma das informações acima, você deve incluir no FINAL da sua resposta o seguinte formato técnico (não mostre isso ao usuário):
+EXTRAÇÃO TÉCNICA (OBRIGATÓRIO):
+Sempre que o usuário mencionar algo que corresponda a uma das missões acima (mesmo que você não tenha perguntado diretamente), você DEVE incluir no FINAL da sua resposta o formato técnico abaixo para o nosso CRM salvar o dado automaticamente:
 ###DATA###{"id_do_campo": "valor_extraido"}###ENDDATA###
-Exemplo: Se ele disse que mora em Belém e você tem a missão Cidade (ID: field_123), termine sua resposta com:
-###DATA###{"field_123": "Belém"}###ENDDATA###
+
+Exemplo: Se o cliente disser "Sou de Belém", você responde algo simpático e termina com: ###DATA###{"field_1769080214565": "Belém"}###ENDDATA###
 
 INSTRUÇÕES DO ROBÔ: ${bot.prompt}
 BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
