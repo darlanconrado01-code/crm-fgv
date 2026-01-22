@@ -40,6 +40,7 @@ interface AIRobot {
     sector: string;
     model: string;
     isFirstContact: boolean;
+    missions?: string[]; // IDs dos campos personalizados que o robô deve preencher
     updatedAt: any;
 }
 
@@ -53,6 +54,7 @@ const UsersView: React.FC = () => {
     const [editingRobot, setEditingRobot] = useState<Partial<AIRobot> | null>(null);
     const [editingUser, setEditingUser] = useState<Partial<HumanUser> | null>(null);
     const [sectors, setSectors] = useState<{ id: string, name: string }[]>([]);
+    const [availableFields, setAvailableFields] = useState<{ id: string, label: string }[]>([]);
 
     useEffect(() => {
         // Escutar Humanos (Mock ou real se tiver coleção users)
@@ -74,7 +76,16 @@ const UsersView: React.FC = () => {
             setSectors(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
         });
 
-        return () => { unsubH(); unsubR(); unsubS(); };
+        // Escutar Campos Personalizados
+        const qF = query(collection(db, "custom_fields"), orderBy("label", "asc"));
+        const unsubF = onSnapshot(qF, (snapshot) => {
+            setAvailableFields(snapshot.docs.map(doc => ({
+                id: doc.id,
+                label: doc.data().label
+            })).filter(f => (snapshot.docs.find(d => d.id === f.id)?.data()?.active !== false)));
+        });
+
+        return () => { unsubH(); unsubR(); unsubS(); unsubF(); };
     }, []);
 
     const handleSaveRobot = async () => {
@@ -92,7 +103,8 @@ const UsersView: React.FC = () => {
             knowledgeBase: editingRobot.knowledgeBase || '',
             model: editingRobot.model || 'gemini-1.5-flash',
             sector: editingRobot.sector || 'Geral',
-            isFirstContact: editingRobot.isFirstContact || false
+            isFirstContact: editingRobot.isFirstContact || false,
+            missions: editingRobot.missions || []
         };
 
         try {
@@ -266,6 +278,25 @@ const UsersView: React.FC = () => {
                                     </p>
                                     <p className="text-[11px] text-gray-600 font-mono truncate">{r.intent || 'Qualquer mensagem'}</p>
                                 </div>
+
+                                {r.missions && r.missions.length > 0 && (
+                                    <div className="mb-4">
+                                        <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-2 flex items-center gap-1">
+                                            🎯 Missões Ativas ({r.missions.length})
+                                        </p>
+                                        <div className="flex flex-wrap gap-1">
+                                            {r.missions.map(mId => {
+                                                const field = availableFields.find(f => f.id === mId);
+                                                return field ? (
+                                                    <span key={mId} className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-bold rounded-md border border-blue-100">
+                                                        {field.label}
+                                                    </span>
+                                                ) : null;
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="flex items-center justify-between pt-4 border-t border-gray-50">
                                     <div className="flex gap-4">
                                         <div className="flex flex-col">
@@ -375,6 +406,48 @@ const UsersView: React.FC = () => {
                                             ))}
                                         </select>
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* Missions / Custom Fields */}
+                            <div className="space-y-4 pt-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
+                                        🎯 Missões do Robô (Coleta de Dados)
+                                    </label>
+                                    <span className="text-[9px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold uppercase">Objetivos de preenchimento</span>
+                                </div>
+                                <p className="text-[11px] text-gray-500 italic ml-1 mb-4">Selecione quais campos este robô deve tentar preencher suavemente durante a conversa.</p>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    {availableFields.length === 0 ? (
+                                        <div className="col-span-2 p-4 border border-dashed border-gray-100 rounded-2xl text-center">
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Nenhum campo personalizado ativo disponível.</p>
+                                        </div>
+                                    ) : availableFields.map(field => (
+                                        <button
+                                            key={field.id}
+                                            onClick={() => {
+                                                const currentMissions = editingRobot?.missions || [];
+                                                const newMissions = currentMissions.includes(field.id)
+                                                    ? currentMissions.filter(id => id !== field.id)
+                                                    : [...currentMissions, field.id];
+                                                setEditingRobot({ ...editingRobot, missions: newMissions });
+                                            }}
+                                            className={`flex items-center gap-3 p-4 rounded-2xl border transition-all text-left group ${editingRobot?.missions?.includes(field.id)
+                                                ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                                                : 'bg-white border-gray-100 text-gray-500 hover:bg-gray-50'
+                                                }`}
+                                        >
+                                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${editingRobot?.missions?.includes(field.id)
+                                                ? 'bg-blue-600 border-blue-600 text-white'
+                                                : 'border-gray-200 group-hover:border-blue-400'
+                                                }`}>
+                                                {editingRobot?.missions?.includes(field.id) && <Plus size={14} className="rotate-45" />}
+                                            </div>
+                                            <span className="text-[11px] font-black uppercase tracking-tight">{field.label}</span>
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
