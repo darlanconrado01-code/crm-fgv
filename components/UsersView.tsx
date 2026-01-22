@@ -52,6 +52,7 @@ const UsersView: React.FC = () => {
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingRobot, setEditingRobot] = useState<Partial<AIRobot> | null>(null);
     const [editingUser, setEditingUser] = useState<Partial<HumanUser> | null>(null);
+    const [sectors, setSectors] = useState<{ id: string, name: string }[]>([]);
 
     useEffect(() => {
         // Escutar Humanos (Mock ou real se tiver coleção users)
@@ -67,7 +68,13 @@ const UsersView: React.FC = () => {
             setLoading(false);
         });
 
-        return () => { unsubH(); unsubR(); };
+        // Escutar Setores
+        const qS = query(collection(db, "sectors"), orderBy("name", "asc"));
+        const unsubS = onSnapshot(qS, (snapshot) => {
+            setSectors(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
+        });
+
+        return () => { unsubH(); unsubR(); unsubS(); };
     }, []);
 
     const handleSaveRobot = async () => {
@@ -204,7 +211,10 @@ const UsersView: React.FC = () => {
                                 <h3 className="font-bold text-gray-800 mb-1">{h.name}</h3>
                                 <p className="text-xs text-gray-500 mb-4">{h.email}</p>
                                 <div className="flex items-center justify-between pt-4 border-t border-gray-50">
-                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{h.role || 'Agente'}</span>
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{h.role || 'Agente'}</span>
+                                        <span className="text-[9px] font-bold text-blue-500 uppercase">{h.role === 'Administrador' ? 'Geral' : (sectors.find(s => s.id === h.role)?.name || h.role || 'Sem Setor')}</span>
+                                    </div>
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => { setEditingUser(h); setIsUserModalOpen(true); }}
@@ -354,13 +364,16 @@ const UsersView: React.FC = () => {
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Setor de Atuação</label>
                                     <div className="relative">
                                         <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-purple-500" size={18} />
-                                        <input
-                                            type="text"
-                                            placeholder="Ex: Comercial, SAC"
-                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                                        <select
+                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 appearance-none transition-all"
                                             value={editingRobot?.sector || ''}
                                             onChange={(e) => setEditingRobot({ ...editingRobot, sector: e.target.value })}
-                                        />
+                                        >
+                                            <option value="Geral">Geral (Todos)</option>
+                                            {sectors.map(s => (
+                                                <option key={s.id} value={s.id}>{s.name}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                             </div>
@@ -512,14 +525,16 @@ const UsersView: React.FC = () => {
                                     </select>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Status</label>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Setor Principal</label>
                                     <select
                                         className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 appearance-none transition-all cursor-pointer"
-                                        value={editingUser?.status || 'active'}
-                                        onChange={(e) => setEditingUser({ ...editingUser, status: e.target.value as any })}
+                                        value={editingUser?.role || ''} // Usando role temporariamente para setor se não houver campo específico
+                                        onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
                                     >
-                                        <option value="active">Ativo</option>
-                                        <option value="inactive">Inativo</option>
+                                        <option value="">Nenhum</option>
+                                        {sectors.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>

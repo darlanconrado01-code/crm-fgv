@@ -24,6 +24,7 @@ import SchedulingView from './components/SchedulingView';
 import TasksView from './components/TasksView';
 import UsersView from './components/UsersView';
 import CustomFieldsView from './components/CustomFieldsView';
+import SectorsView from './components/SectorsView';
 import { NavigationPage } from './types';
 
 const HeaderDropdown = ({ label, icon: Icon, items, active, onClick }: { label: string, icon: any, items?: any[], active?: boolean, onClick?: () => void }) => {
@@ -111,7 +112,7 @@ const App: React.FC = () => {
   const adminItems = [
     { label: 'Usuários', icon: Users, action: () => setCurrentPage('usuarios') },
     { label: 'Campos Personalizados', icon: Database, action: () => setCurrentPage('campos_personalizados') },
-    { label: 'Setores', icon: ClipboardList },
+    { label: 'Setores', icon: ClipboardList, action: () => setCurrentPage('setores') },
     { label: 'Auditoria de login', icon: CheckCircle2 },
   ];
 
@@ -161,6 +162,7 @@ const App: React.FC = () => {
           {currentPage === 'tarefas' && <TasksView />}
           {currentPage === 'usuarios' && <UsersView />}
           {currentPage === 'campos_personalizados' && <CustomFieldsView />}
+          {currentPage === 'setores' && <SectorsView />}
 
           {['dashboard', 'bots', 'relatorios'].includes(currentPage) && (
             <div className="h-full flex items-center justify-center text-gray-400 flex-col space-y-4">
