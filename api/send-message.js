@@ -22,40 +22,37 @@ export default async function handler(req, res) {
 
         // 1. Buscar as configurações salvas no Firebase
         const configDoc = await getDoc(doc(db, "settings", "evolution"));
-        if (!configDoc.exists()) {
-            return res.status(400).json({ status: 'error', message: 'Configurações da Evolution não encontradas.' });
-        }
+        const config = configDoc.exists() ? configDoc.data() : {};
 
-        const config = configDoc.data();
+        // Prioridade para o Webhook do N8N
+        const n8nUrl = config.n8nSendUrl || 'https://n8n.canvazap.com.br/webhook-test/799c3543-026d-472f-a852-460f69c4d166';
 
-        // Limpeza da URL para evitar barras duplas (ex: http://url.com/ + /message)
-        const cleanUrl = config.url.replace(/\/$/, "");
-        const evolutionUrl = `${cleanUrl}/message/sendText/${config.instance}`;
+        console.log('--- ENVIANDO MENSAGE PARA N8N ---');
+        console.log('URL:', n8nUrl);
 
-        // 2. Disparar para a Evolution API
-        const response = await fetch(evolutionUrl, {
+        // 2. Disparar para o Webhook do N8N
+        const response = await fetch(n8nUrl, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'apikey': config.apiKey
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                number: chatId,
+                chatId: chatId,
                 text: text,
-                delay: 1200,
-                linkPreview: true
+                instance: config.instance || 'EnduroAguas',
+                apiKey: config.apiKey || '',
+                evolutionUrl: config.url || '',
+                timestamp: new Date().toISOString(),
+                source: 'CRM FGV'
             })
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            return res.status(response.status).json({ status: 'error', data });
-        }
+        const data = await response.text(); // n8n às vezes retorna string simples
 
         return res.status(200).json({ status: 'success', data });
 
     } catch (error) {
+        console.error('Erro no Proxy Send:', error);
         return res.status(500).json({ status: 'error', message: error.message });
     }
 }
