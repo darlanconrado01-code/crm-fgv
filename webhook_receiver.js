@@ -218,6 +218,20 @@ app.post('/webhook', async (req, res) => {
                             .filter(m => m.content)
                             .reverse();
 
+                        // BUSCAR DEFINIÇÕES DAS MISSÕES (Campos Personalizados)
+                        let missionInstructions = "";
+                        const missionsData = [];
+                        if (bot.missions && bot.missions.length > 0) {
+                            for (const mId of bot.missions) {
+                                const fDoc = await getDoc(doc(db, "custom_fields", mId));
+                                if (fDoc.exists()) {
+                                    const fData = fDoc.data();
+                                    missionsData.push({ id: mId, label: fData.label, type: fData.type });
+                                    missionInstructions += `- ${fData.label} (ID: ${mId}): ${fData.placeholder || ''}\n`;
+                                }
+                            }
+                        }
+
                         if (openaiKey) {
                             const systemPrompt = `Você é um assistente virtual profissional da ISAN/FGV.
 REGRAS:
@@ -225,6 +239,16 @@ REGRAS:
 2. Responda diretamente à dúvida do cliente.
 3. Seja curto, natural e profissional.
 4. Use o contexto abaixo para guiar suas respostas.
+
+SUAS MISSÕES ATUAIS:
+Você deve tentar coletar as seguintes informações de forma suave durante a conversa:
+${missionInstructions || 'Nenhuma missão específica.'}
+
+EXTRAÇÃO DE DADOS:
+Sempre que o usuário fornecer uma das informações acima, você deve incluir no FINAL da sua resposta o seguinte formato técnico (não mostre isso ao usuário):
+###DATA###{"id_do_campo": "valor_extraido"}###ENDDATA###
+Exemplo: Se ele disse que mora em Belém e você tem a missão Cidade (ID: field_123), termine sua resposta com:
+###DATA###{"field_123": "Belém"}###ENDDATA###
 
 INSTRUÇÕES DO ROBÔ: ${bot.prompt}
 BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
@@ -247,7 +271,23 @@ BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
                             });
 
                             const aiData = await response.json();
-                            const aiText = aiData.choices?.[0]?.message?.content;
+                            let aiTextRaw = aiData.choices?.[0]?.message?.content || "";
+
+                            // EXTRAIR DADOS DO TEXTO DA IA
+                            let extractedData = {};
+                            const dataRegex = /###DATA###(.*?)###ENDDATA###/s;
+                            const match = aiTextRaw.match(dataRegex);
+                            if (match) {
+                                try {
+                                    extractedData = JSON.parse(match[1]);
+                                    // Limpar o texto para enviar ao usuário
+                                    aiTextRaw = aiTextRaw.replace(dataRegex, "").trim();
+                                } catch (e) {
+                                    console.error("Erro ao parsear JSON da IA:", e);
+                                }
+                            }
+
+                            const aiText = aiTextRaw;
 
                             if (aiText) {
                                 console.log('-> Resposta gerada pela IA:', aiText);
@@ -282,6 +322,70 @@ BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
                                     }, { merge: true });
 
                                     console.log('-> Resposta do Bot enviada e registrada.');
+
+                                    // ATUALIZAR CAMPOS PERSONALIZADOS NO CONTATO
+                                    if (Object.keys(extractedData).length > 0) {
+                                        console.log('-> Dados extraídos pela IA:', extractedData);
+                                        const contactDoc = await getDoc(contactRef);
+                                        const currentCustomData = contactDoc.exists() ? (contactDoc.data().customData || {}) : {};
+
+                                        await setDoc(contactRef, {
+                                            customData: {
+                                                ...currentCustomData,
+                                                ...extractedData
+                                            },
+                                            updatedAt: serverTimestamp()
+                                        }, { merge: true });
+                                        console.log('-> Campos personalizados atualizados no contato.');
+
+                                        // VERIFICAR SE TODAS AS MISSÕES FORAM CONCLUÍDAS
+                                        if (bot.missions && bot.missions.length > 0) {
+                                            const updatedContactDoc = await getDoc(contactRef);
+                                            const updatedCustomData = updatedContactDoc.data().customData || {};
+                                            const allMissionsComplete = bot.missions.every(mId =>
+                                                updatedCustomData[mId] !== undefined &&
+                                                updatedCustomData[mId] !== null &&
+                                                updatedCustomData[mId] !== ""
+                                            );
+
+                                            if (allMissionsComplete) {
+                                                console.log('--- MISSÕES CONCLUÍDAS! TRANSFERINDO PARA HUMANO ---');
+
+                                                const transferText = "Obrigado pelas informações! Todas as missões foram cumpridas. Vou te transferir agora para um dos nossos atendentes humanos que continuará seu atendimento.";
+
+                                                // Enviar mensagem de transferência via n8n
+                                                if (settings.n8nSendUrl) {
+                                                    await fetch(settings.n8nSendUrl, {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({
+                                                            telefone: phone,
+                                                            nome: bot.name || "Bot FGV",
+                                                            mensagem: transferText,
+                                                            instance: settings.instance,
+                                                            isBot: true
+                                                        })
+                                                    });
+                                                }
+
+                                                // Registrar mensagem de transferência
+                                                await addDoc(collection(chatRef, "messages"), {
+                                                    text: transferText,
+                                                    sender: bot.name || "Bot",
+                                                    fromMe: true,
+                                                    isBot: true,
+                                                    timestamp: serverTimestamp(),
+                                                    type: 'text'
+                                                });
+
+                                                await setDoc(chatRef, {
+                                                    status: 'atendimento', // Transfere para atendimento humano
+                                                    lastMessage: transferText,
+                                                    updatedAt: serverTimestamp()
+                                                }, { merge: true });
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
