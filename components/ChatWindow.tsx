@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Smile, Paperclip, MoreVertical, Search, Phone, Video, CheckCheck, Trash2, X, AlertTriangle } from 'lucide-react';
+import { Send, Smile, Paperclip, MoreVertical, Search, Phone, Video, CheckCheck, Trash2, X, AlertTriangle, User2 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp, writeBatch, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import { CustomField } from '../types';
@@ -35,6 +35,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
     const [contactData, setContactData] = useState<any>({});
     const [savingField, setSavingField] = useState(false);
     const [contactInfo, setContactInfo] = useState<any>(null);
+    const [agentName, setAgentName] = useState<string>('Buscando...');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -94,9 +95,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
             }
         });
 
+        // Escutar dados do chat (para pegar o agente e status)
+        const chatDocRef = doc(db, "chats", chatId);
+        const unsubChat = onSnapshot(chatDocRef, (snapshot) => {
+            if (snapshot.exists()) {
+                setAgentName(snapshot.data().agent || 'Sem Responsável');
+            }
+        });
+
         return () => {
             unsubFields();
             unsubContact();
+            unsubChat();
         };
     }, [chatId]);
 
@@ -357,6 +367,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
                         </div>
                         <h2 className="text-xl font-black text-gray-800 uppercase tracking-tight">{contactName}</h2>
                         <p className="text-sm font-bold text-gray-400 mt-1">{chatId}</p>
+
+                        <div className="mt-4 px-4 py-2 bg-blue-50 text-blue-600 rounded-2xl flex items-center gap-2 border border-blue-100 shadow-sm">
+                            <div className="w-8 h-8 rounded-xl bg-blue-500 flex items-center justify-center text-white shrink-0">
+                                <User2 size={16} />
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                                <span className="text-[9px] font-black uppercase tracking-widest opacity-60 leading-none mb-0.5">Responsável</span>
+                                <span className="text-xs font-black uppercase truncate">{agentName}</span>
+                            </div>
+                        </div>
 
                         <div className="flex gap-4 mt-6">
                             <button className="w-12 h-12 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-500 hover:border-blue-100 transition-all">
