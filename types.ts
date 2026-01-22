@@ -1,5 +1,5 @@
 
-export type NavigationPage = 'atendimento' | 'dashboard' | 'contatos' | 'relatorios' | 'configuracoes' | 'agendamento' | 'tarefas' | 'bots';
+export type NavigationPage = 'atendimento' | 'dashboard' | 'contatos' | 'relatorios' | 'configuracoes' | 'agendamento' | 'tarefas' | 'bots' | 'usuarios' | 'campos_personalizados';
 
 export interface ChatContact {
   id: string;
@@ -11,4 +11,6 @@ export interface ChatContact {
   tags: string[];
   avatarUrl: string;
   unreadCount?: number;
+  status: 'atendimento' | 'aguardando' | 'bot' | 'resolvido' | 'pausado';
+  remoteJid?: string;
 }

@@ -14,7 +14,8 @@ import {
   UserCheck,
   Zap,
   Calendar,
-  LayoutGrid
+  LayoutGrid,
+  Database
 } from 'lucide-react';
 import AtendimentoView from './components/AtendimentoView';
 import SettingsView from './components/SettingsView';
@@ -22,6 +23,7 @@ import ContactsView from './components/ContactsView';
 import SchedulingView from './components/SchedulingView';
 import TasksView from './components/TasksView';
 import UsersView from './components/UsersView';
+import CustomFieldsView from './components/CustomFieldsView';
 import { NavigationPage } from './types';
 
 const HeaderDropdown = ({ label, icon: Icon, items, active, onClick }: { label: string, icon: any, items?: any[], active?: boolean, onClick?: () => void }) => {
@@ -108,6 +110,7 @@ const App: React.FC = () => {
 
   const adminItems = [
     { label: 'Usuários', icon: Users, action: () => setCurrentPage('usuarios') },
+    { label: 'Campos Personalizados', icon: Database, action: () => setCurrentPage('campos_personalizados') },
     { label: 'Setores', icon: ClipboardList },
     { label: 'Auditoria de login', icon: CheckCircle2 },
   ];
@@ -157,6 +160,7 @@ const App: React.FC = () => {
           {currentPage === 'agendamento' && <SchedulingView />}
           {currentPage === 'tarefas' && <TasksView />}
           {currentPage === 'usuarios' && <UsersView />}
+          {currentPage === 'campos_personalizados' && <CustomFieldsView />}
 
           {['dashboard', 'bots', 'relatorios'].includes(currentPage) && (
             <div className="h-full flex items-center justify-center text-gray-400 flex-col space-y-4">
