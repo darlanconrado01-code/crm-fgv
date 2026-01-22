@@ -26,31 +26,15 @@ export default async function handler(req, res) {
 
         const n8nUrl = config.n8nSendUrl || 'https://n8n.canvazap.com.br/webhook-test/799c3543-026d-472f-a852-460f69c4d166';
 
-        // 2. Montar o JSON estruturado IGUAL ao da Evolution API
-        // Incluindo o nome do contato para que o n8n saiba quem é
-        const evolutionStructuredBody = {
-            event: "messages.upsert",
-            instance: config.instance || "EnduroAguas",
-            data: {
-                key: {
-                    remoteJid: `${chatId}@s.whatsapp.net`,
-                    fromMe: true,
-                    id: `CRM-${Date.now()}`
-                },
-                pushName: contactName || "Contato CRM",
-                message: {
-                    conversation: text
-                },
-                messageType: "conversation",
-                messageTimestamp: Math.floor(Date.now() / 1000),
-                source: "web"
-            },
-            sender: `${chatId}@s.whatsapp.net`, // No caso de envio, o sender aqui no JSON simulado ajuda n8n a saber o destino
-            apikey: config.apiKey || "",
-            server_url: config.url || ""
+        // 2. Montar o JSON simplificado conforme solicitado
+        const simplifiedBody = {
+            telefone: chatId, // Já está no formato 5591...
+            nome: contactName || "Contato CRM",
+            mensagem: text
         };
 
-        console.log('--- ENVIANDO MENSAGEM PADRONIZADA PARA N8N ---');
+        console.log('--- ENVIANDO MENSAGEM SIMPLIFICADA PARA N8N ---');
+        console.log('Payload:', simplifiedBody);
 
         // 3. Disparar para o Webhook do N8N
         const response = await fetch(n8nUrl, {
@@ -58,7 +42,7 @@ export default async function handler(req, res) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(evolutionStructuredBody)
+            body: JSON.stringify(simplifiedBody)
         });
 
         const data = await response.text();
