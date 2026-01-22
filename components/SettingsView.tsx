@@ -6,28 +6,32 @@ import {
   Database, Key, Link2, Save, Edit3
 } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, Timestamp, doc, setDoc, getDoc, limit } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, Timestamp, doc, setDoc, getDoc, limit, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 
 const SettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState('WEBHOOK');
-  const [webhookListening, setWebhookListening] = useState(false);
+  const [webhookListening, setWebhookListening] = useState(true);
   const [lastEvent, setLastEvent] = useState<any>(null);
 
-  // Configurações da Evolution
+  // Configurações da Evolution e IA
   const [evolutionConfig, setEvolutionConfig] = useState({
     url: '',
     instance: '',
     apiKey: '',
-    n8nSendUrl: 'https://n8n.canvazap.com.br/webhook-test/799c3543-026d-472f-a852-460f69c4d166'
+    n8nSendUrl: 'https://n8n.canvazap.com.br/webhook-test/799c3543-026d-472f-a852-460f69c4d166',
+    geminiApiKey: 'AIzaSyC5nSyUtnQt97vglDGZurv2AVVtbArg4nY',
+    openaiApiKey: ''
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isEditingN8N, setIsEditingN8N] = useState(false);
+  const [isEditingGemini, setIsEditingGemini] = useState(false);
+  const [isEditingOpenAI, setIsEditingOpenAI] = useState(false);
 
   const baseUrl = window.location.origin;
 
   const tabs = [
     'EM GERAL', 'CONEXÕES', 'ATENDIMENTOS', 'CHAT INTERNO', 'PERMISSÕES',
-    'INTEGRAÇÃO', 'AÇÕES POR LOTE', 'INTELIGENCIA ARTIFICIAL', 'SEGURANÇA', 'WEBHOOK'
+    'INTEGRAÇÃO', 'AÇÕES POR LOTE', 'INTELIGENCIA ARTIFICIAL', 'SEGURANÇA', 'WEBHOOK', 'LIMPEZA'
   ];
 
   // Carregar configurações salvas
@@ -47,6 +51,8 @@ const SettingsView: React.FC = () => {
     try {
       await setDoc(doc(db, "settings", "evolution"), evolutionConfig);
       setIsEditingN8N(false);
+      setIsEditingGemini(false);
+      setIsEditingOpenAI(false);
       alert('Configurações salvas com sucesso!');
     } catch (error) {
       alert('Erro ao salvar: ' + error.message);
@@ -75,13 +81,22 @@ const SettingsView: React.FC = () => {
         limit(1)
       );
       unsubscribe = onSnapshot(q, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === "added") {
-            const data = change.doc.data();
-            const ts = data.timestamp instanceof Timestamp ? data.timestamp.toDate().toISOString() : data.timestamp;
-            setLastEvent({ ...data, timestamp: ts });
+        if (!snapshot.empty) {
+          const doc = snapshot.docs[0];
+          const data = doc.data();
+
+          // Formata o timestamp de forma segura
+          let ts = 'Processando...';
+          if (data.timestamp instanceof Timestamp) {
+            ts = data.timestamp.toDate().toLocaleString();
+          } else if (data.timestamp) {
+            ts = new Date(data.timestamp).toLocaleString();
           }
-        });
+
+          setLastEvent({ ...data, timestamp: ts });
+        }
+      }, (error) => {
+        console.error("Erro no monitor de webhook:", error);
       });
     } else {
       setLastEvent(null);
@@ -98,7 +113,7 @@ const SettingsView: React.FC = () => {
     <div className="h-full w-full bg-gray-100 p-6 overflow-hidden flex flex-col font-sans">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col flex-1 overflow-hidden">
         {/* Horizontal Navigation Tabs */}
-        <div className="flex border-b border-gray-100 overflow-x-auto no-scrollbar shrink-0 bg-white">
+        <div className="flex border-b border-gray-100 overflow-x-auto no-scrollbar shrink-0 bg-white items-center pr-4">
           {tabs.map((tab) => (
             <button
               key={tab}
@@ -109,6 +124,7 @@ const SettingsView: React.FC = () => {
               {activeTab === tab && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
             </button>
           ))}
+          <span className="ml-auto text-[10px] text-gray-300 font-mono">v1.2-reset-btn</span>
         </div>
 
         {/* Content Area */}
@@ -207,15 +223,17 @@ const SettingsView: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setWebhookListening(!webhookListening)}
-                    className={`px-8 py-3 rounded-2xl font-bold text-sm transition-all shadow-lg active:scale-95 ${webhookListening
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setWebhookListening(!webhookListening)}
+                      className={`px-8 py-3 rounded-2xl font-bold text-sm transition-all shadow-lg active:scale-95 ${webhookListening
                         ? 'bg-red-50 text-red-600 hover:bg-red-100 shadow-red-100'
                         : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-100'
-                      }`}
-                  >
-                    {webhookListening ? 'DESATIVAR ESCUTA' : 'ATIVAR ESCUTA'}
-                  </button>
+                        }`}
+                    >
+                      {webhookListening ? 'DESATIVAR ESCUTA' : 'ATIVAR ESCUTA'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid gap-6">
@@ -287,11 +305,237 @@ const SettingsView: React.FC = () => {
                       )}
                     </div>
                   </div>
+
+                  {/* Live Console / Monitor Area */}
+                  <div className="bg-gray-900 rounded-[2rem] overflow-hidden shadow-2xl border border-gray-800 mt-6 min-h-[300px] flex flex-col">
+                    <div className="bg-gray-800 px-6 py-4 flex items-center justify-between border-b border-gray-700">
+                      <div className="flex items-center gap-3">
+                        <div className="flex gap-1.5">
+                          <div className="w-3 h-3 rounded-full bg-red-500/80" />
+                          <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                          <div className="w-3 h-3 rounded-full bg-green-500/80" />
+                        </div>
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Live Console / Webhook Monitor</span>
+                      </div>
+                      {webhookListening && (
+                        <div className="flex items-center gap-2 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-tighter">Live</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 p-6 font-mono text-sm overflow-y-auto custom-scrollbar bg-[#0f172a]">
+                      {lastEvent ? (
+                        <div className="animate-in fade-in duration-500">
+                          <div className="flex items-center gap-2 text-emerald-400 mb-4 text-xs font-bold bg-emerald-400/5 py-1.5 px-3 rounded-lg border border-emerald-400/10 w-fit">
+                            <Activity size={12} />
+                            EVENTO RECEBIDO @ {lastEvent.timestamp}
+                          </div>
+                          <pre className="text-gray-300 leading-relaxed whitespace-pre-wrap selection:bg-blue-500/30">
+                            {JSON.stringify(lastEvent, null, 2)}
+                          </pre>
+                        </div>
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-gray-600 gap-4 opacity-50">
+                          <div className="p-8 bg-gray-800/50 rounded-full">
+                            <Webhook size={48} className={webhookListening ? 'animate-bounce' : ''} />
+                          </div>
+                          <p className="text-sm font-bold uppercase tracking-widest text-center px-10">
+                            {webhookListening
+                              ? "Aguardando próximo evento pela Evolution API..."
+                              : "Ative a escuta para monitorar eventos em tempo real"}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            {['EM GERAL', 'ATENDIMENTOS', 'CHAT INTERNO', 'PERMISSÕES', 'INTEGRAÇÃO', 'AÇÕES POR LOTE', 'INTELIGENCIA ARTIFICIAL', 'SEGURANÇA'].includes(activeTab) && (
+            {activeTab === 'INTELIGENCIA ARTIFICIAL' && (
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                      <Zap size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Google Gemini AI</h3>
+                      <p className="text-sm text-gray-500">Configure sua chave de API para habilitar recursos de inteligência artificial.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-8">
+                    {/* Google Gemini */}
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Chave API Gemini</label>
+                        <div className="flex gap-2">
+                          <div className="flex-1 relative">
+                            <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                            <input
+                              type={isEditingGemini ? "text" : "password"}
+                              placeholder="AIzaSy..."
+                              disabled={!isEditingGemini}
+                              className={`w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-mono outline-none transition-all ${isEditingGemini ? 'ring-2 ring-blue-500 bg-white shadow-inner' : 'cursor-default'}`}
+                              value={evolutionConfig.geminiApiKey}
+                              onChange={(e) => setEvolutionConfig({ ...evolutionConfig, geminiApiKey: e.target.value })}
+                            />
+                          </div>
+
+                          {isEditingGemini ? (
+                            <button
+                              onClick={handleSaveEvolution}
+                              disabled={isSaving}
+                              className="bg-blue-600 text-white px-6 rounded-2xl hover:bg-blue-700 transition-colors font-bold text-xs shrink-0 flex items-center gap-2"
+                            >
+                              <Save size={16} /> SALVAR
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setIsEditingGemini(true)}
+                              className="bg-gray-100 text-gray-600 px-6 rounded-2xl hover:bg-gray-200 transition-colors font-bold text-xs shrink-0 flex items-center gap-2"
+                            >
+                              <Edit3 size={16} /> EDITAR
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                        <div className="flex gap-3">
+                          <Activity className="text-blue-500 shrink-0" size={18} />
+                          <p className="text-xs text-blue-700 leading-relaxed">
+                            Esta chave será usada para o processamento de mensagens e automações via Google Gemini.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* OpenAI API Key */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-4 mb-2">
+                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                          <Shield size={20} />
+                        </div>
+                        <h4 className="font-bold text-gray-700">OpenAI (ChatGPT)</h4>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Chave API OpenAI</label>
+                        <div className="flex gap-2">
+                          <div className="flex-1 relative">
+                            <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                            <input
+                              type={isEditingOpenAI ? "text" : "password"}
+                              placeholder="sk-proj-..."
+                              disabled={!isEditingOpenAI}
+                              className={`w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-mono outline-none transition-all ${isEditingOpenAI ? 'ring-2 ring-emerald-500 bg-white shadow-inner' : 'cursor-default'}`}
+                              value={evolutionConfig.openaiApiKey || ''}
+                              onChange={(e) => setEvolutionConfig({ ...evolutionConfig, openaiApiKey: e.target.value })}
+                            />
+                          </div>
+
+                          {isEditingOpenAI ? (
+                            <button
+                              onClick={handleSaveEvolution}
+                              disabled={isSaving}
+                              className="bg-emerald-600 text-white px-6 rounded-2xl hover:bg-emerald-700 transition-colors font-bold text-xs shrink-0 flex items-center gap-2"
+                            >
+                              <Save size={16} /> SALVAR
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setIsEditingOpenAI(true)}
+                              className="bg-gray-100 text-gray-600 px-6 rounded-2xl hover:bg-gray-200 transition-colors font-bold text-xs shrink-0 flex items-center gap-2"
+                            >
+                              <Edit3 size={16} /> EDITAR
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'LIMPEZA' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="p-3 bg-red-50 text-red-600 rounded-2xl">
+                      <Trash2 size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">Manutenção e Limpeza</h3>
+                      <p className="text-sm text-gray-500">Ferramentas para resetar dados e limpar logs do sistema.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Reset Database */}
+                    <div className="p-6 bg-red-50 rounded-[2rem] border border-red-100 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 text-red-600 mb-2">
+                          <Database size={20} />
+                          <h4 className="font-bold uppercase tracking-tight text-sm">Limpar Banco de Dados</h4>
+                        </div>
+                        <p className="text-xs text-red-700 leading-relaxed mb-6">
+                          ⚠️ **ATENÇÃO:** Esta ação apagará permanentemente todas as conversas, mensagens e históricos de chat do CRM. Esta ação não pode ser desfeita.
+                        </p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!confirm("⚠️ PERIGO: Isso apagará TODAS as conversas e mensagens. Confirma?")) return;
+                          const chatsSnap = await getDocs(collection(db, "chats"));
+                          for (const d of chatsSnap.docs) {
+                            const msgs = await getDocs(collection(db, "chats", d.id, "messages"));
+                            const batch = writeBatch(db);
+                            msgs.docs.forEach(m => batch.delete(m.ref));
+                            await batch.commit();
+                            await deleteDoc(doc(db, "chats", d.id));
+                          }
+                          alert("Banco de dados resetado!");
+                        }}
+                        className="w-full bg-red-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-red-700 transition-all shadow-lg active:scale-95"
+                      >
+                        RESETAR BANCO AGORA
+                      </button>
+                    </div>
+
+                    {/* Clear Logs */}
+                    <div className="p-6 bg-gray-50 rounded-[2rem] border border-gray-200 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 text-gray-600 mb-2">
+                          <Activity size={20} />
+                          <h4 className="font-bold uppercase tracking-tight text-sm">Limpar Logs do Monitor</h4>
+                        </div>
+                        <p className="text-xs text-gray-500 leading-relaxed mb-6">
+                          Esta ação limpa o histórico de eventos que aparecem no Monitor de Webhooks. Útil para limpar a tela durante testes massivos.
+                        </p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!confirm("Limpar logs do monitor?")) return;
+                          const snapshot = await getDocs(collection(db, "webhook_events"));
+                          const batch = writeBatch(db);
+                          snapshot.docs.forEach(d => batch.delete(d.ref));
+                          await batch.commit();
+                          setLastEvent(null);
+                          alert("Logs limpos!");
+                        }}
+                        className="w-full bg-gray-800 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-black transition-all shadow-lg active:scale-95"
+                      >
+                        LIMPAR TODOS OS LOGS
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {['EM GERAL', 'ATENDIMENTOS', 'CHAT INTERNO', 'PERMISSÕES', 'INTEGRAÇÃO', 'AÇÕES POR LOTE', 'SEGURANÇA'].includes(activeTab) && (
               <div className="flex items-center justify-center py-20 text-gray-400 font-bold uppercase tracking-widest text-xs">
                 {activeTab} em desenvolvimento...
               </div>
