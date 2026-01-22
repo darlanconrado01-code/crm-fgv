@@ -150,15 +150,31 @@ app.post('/webhook', async (req, res) => {
             let initialAgentId = chatDoc.exists() ? chatDoc.data().agentId : null;
             let initialSector = chatDoc.exists() ? chatDoc.data().sector : 'Geral';
 
-            if (!initialAgent && chatStatus === 'bot') {
-                const botQuery = query(collection(db, "ai_agents"), where("isFirstContact", "==", true), where("status", "==", "active"), limit(1));
-                const botSnap = await getDocs(botQuery);
+            // Verificar se o agente é nulo ou um placeholder
+            const isAgentPlaceholder = !initialAgent ||
+                initialAgent === 'Sem Agente' ||
+                initialAgent === 'Sem Responsável' ||
+                initialAgent === 'Buscando...';
+
+            if (isAgentPlaceholder && chatStatus === 'bot') {
+                console.log('-> Buscando robô responsável...');
+                let botQuery = query(collection(db, "ai_agents"), where("isFirstContact", "==", true), where("status", "==", "active"), limit(1));
+                let botSnap = await getDocs(botQuery);
+
+                // Fallback: Se não achar "isFirstContact", pega qualquer robô ativo
+                if (botSnap.empty) {
+                    botQuery = query(collection(db, "ai_agents"), where("status", "==", "active"), limit(1));
+                    botSnap = await getDocs(botQuery);
+                }
+
                 if (!botSnap.empty) {
                     const bData = botSnap.docs[0].data();
                     initialAgent = bData.name;
                     initialAgentId = botSnap.docs[0].id;
                     initialSector = bData.sector || 'Geral';
-                    console.log(`-> Atribuindo lead ao robô: ${initialAgent}`);
+                    console.log(`-> AGENTE DEFINIDO: ${initialAgent}`);
+                } else {
+                    initialAgent = 'Robô Geral';
                 }
             }
 
@@ -232,12 +248,13 @@ app.post('/webhook', async (req, res) => {
                     if (!botSnap.empty) {
                         const bot = botSnap.docs[0].data();
 
-                        // ATRIBUIR RESPONSÁVEL E SETOR (Garantir que o robô é o dono do lead no setor correto)
+                        // REFORÇO: Garantir que o robô é o dono do lead (Fallback de segurança)
                         await setDoc(chatRef, {
                             agent: bot.name,
-                            agentId: botSnap.docs[0].id, // Usar o ID do documento do bot
+                            agentId: botSnap.docs[0].id,
                             sector: bot.sector || 'Geral'
                         }, { merge: true });
+
 
                         const settingsSnap = await getDoc(doc(db, "settings", "evolution"));
                         const settings = settingsSnap.exists() ? settingsSnap.data() : {};
@@ -292,22 +309,16 @@ app.post('/webhook', async (req, res) => {
                         }
 
                         if (openaiKey) {
-                            const systemPrompt = `Você é um assistente virtual profissional da ISAN/FGV. Seu objetivo é ajudar o cliente e, ao mesmo tempo, qualificar o lead de forma natural e empática.
-REGRAS DE OURO:
-1. NÃO seja um robô de formulário. NÃO faça uma lista de perguntas.
-2. Seja empático. Se o cliente disser que está com pressa ou não quiser dar uma info, tudo bem! Prossiga com a ajuda.
-3. Se o histórico mostrar que você já se apresentou, NÃO se apresente novamente. Curto e direto!
-4. Use o contexto abaixo para guiar suas respostas técnicas.
+                            const systemPrompt = `Você é um robô de atendimento da ISAN/FGV. Seu papel é conversar naturalmente e EXTRAIR DADOS para o CRM.
 
-MISSÃO DE QUALIFICAÇÃO (COLETA SUAVE):
-Ao longo da conversa, tente descobrir as seguintes informações sem forçar a barra:
-${missionInstructions || 'Nenhuma missão específica.'}
+VOCÊ POSSUI MISSÕES ESPECÍFICAS DE COLETA:
+${missionInstructions || '- Nenhuma missão configurada.'}
 
-EXTRAÇÃO TÉCNICA (OBRIGATÓRIO):
-Sempre que o usuário mencionar algo que corresponda a uma das missões acima (mesmo que você não tenha perguntado diretamente), você DEVE incluir no FINAL da sua resposta o formato técnico abaixo para o nosso CRM salvar o dado automaticamente:
-###DATA###{"id_do_campo": "valor_extraido"}###ENDDATA###
+REGRAS TÉCNICAS (OBRIGATÓRIO):
+Sempre que detectar um dado de uma missão, anexe isto ao final da sua resposta:
+###DATA###{"ID_DO_CAMPO": "VALOR"}###ENDDATA###
 
-Exemplo: Se o cliente disser "Sou de Belém", você responde algo simpático e termina com: ###DATA###{"field_1769080214565": "Belém"}###ENDDATA###
+NÃO ignore isso. Se o usuário disser o nome, cidade ou curso, salve IMEDIATAMENTE usando o formato acima.
 
 INSTRUÇÕES DO ROBÔ: ${bot.prompt}
 BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
@@ -332,6 +343,8 @@ BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
                             const aiData = await response.json();
                             let aiTextRaw = aiData.choices?.[0]?.message?.content || "";
 
+                            console.log(`[AI RESPONSE]: ${aiTextRaw}`);
+
                             // EXTRAIR DADOS DO TEXTO DA IA
                             let extractedData = {};
                             const dataRegex = /###DATA###(.*?)###ENDDATA###/s;
@@ -339,7 +352,7 @@ BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
                             if (match) {
                                 try {
                                     extractedData = JSON.parse(match[1]);
-                                    // Limpar o texto para enviar ao usuário
+                                    console.log('-> DADOS EXTRAÍDOS:', extractedData);
                                     aiTextRaw = aiTextRaw.replace(dataRegex, "").trim();
                                 } catch (e) {
                                     console.error("Erro ao parsear JSON da IA:", e);

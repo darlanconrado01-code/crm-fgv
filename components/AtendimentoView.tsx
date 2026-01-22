@@ -16,6 +16,7 @@ const AtendimentoView: React.FC = () => {
   const [chats, setChats] = useState<ChatContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedChat, setSelectedChat] = useState<ChatContact | null>(null);
+  const [humans, setHumans] = useState<any[]>([]);
 
   useEffect(() => {
     const q = query(collection(db, "chats"), orderBy("updatedAt", "desc"));
@@ -45,7 +46,16 @@ const AtendimentoView: React.FC = () => {
       setChats(chatList);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    const qH = query(collection(db, "users"), orderBy("name", "asc"));
+    const unsubH = onSnapshot(qH, (snapshot) => {
+      setHumans(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubscribe();
+      unsubH();
+    };
   }, []);
 
 
@@ -122,6 +132,12 @@ const AtendimentoView: React.FC = () => {
             <span className="text-[10px] font-black uppercase tracking-[0.1em]">Aguardando</span>
             {activeSubTab === 'aguardando' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
           </button>
+
+          <button onClick={() => setActiveSubTab('equipe')} className={`flex-1 flex flex-col items-center py-4 relative transition-colors ${activeSubTab === 'equipe' ? 'text-blue-600' : 'text-gray-400'}`}>
+            <UsersIcon size={24} strokeWidth={2.5} className="mb-1" />
+            <span className="text-[10px] font-black uppercase tracking-[0.1em]">Equipe</span>
+            {activeSubTab === 'equipe' && <div className="absolute bottom-0 w-full h-1 bg-blue-600" />}
+          </button>
         </div>
 
         {/* Chat List */}
@@ -129,17 +145,33 @@ const AtendimentoView: React.FC = () => {
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center p-8"><div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" /></div>
           ) : (
-            chats
-              .filter(chat => {
-                if (activeTopTab === 'resolvidos') return chat.status === 'resolvido';
-                if (activeTopTab === 'pausados') return chat.status === 'pausado';
-                return chat.status === activeSubTab || (activeSubTab === 'atendimento' && !chat.status);
-              })
-              .map((chat) => (
-                <div key={chat.id} onClick={() => setSelectedChat(chat)} className={selectedChat?.id === chat.id ? 'bg-blue-50' : ''}>
-                  <ChatListItem chat={chat} />
-                </div>
-              ))
+            activeSubTab === 'equipe' ? (
+              <div className="p-4 space-y-4">
+                {humans.map(h => (
+                  <div key={h.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-black shadow-lg">
+                      {h.name.charAt(0)}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-800 text-sm uppercase">{h.name}</h4>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{h.role || 'Agente'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              chats
+                .filter(chat => {
+                  if (activeTopTab === 'resolvidos') return chat.status === 'resolvido';
+                  if (activeTopTab === 'pausados') return chat.status === 'pausado';
+                  return chat.status === activeSubTab || (activeSubTab === 'atendimento' && !chat.status);
+                })
+                .map((chat) => (
+                  <div key={chat.id} onClick={() => setSelectedChat(chat)} className={selectedChat?.id === chat.id ? 'bg-blue-50' : ''}>
+                    <ChatListItem chat={chat} />
+                  </div>
+                ))
+            )
           )}
         </div>
       </div>
