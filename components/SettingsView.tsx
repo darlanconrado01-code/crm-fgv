@@ -2,83 +2,57 @@
 import React, { useState, useEffect } from 'react';
 import {
   Settings, Shield, Bell, User, Palette, Globe, Check,
-  Webhook, Activity, Copy, ExternalLink, Zap
+  Webhook, Activity, Copy, ExternalLink, Zap, Plus, Trash2
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, orderBy, limit, onSnapshot, Timestamp } from 'firebase/firestore';
 
-interface SettingsToggleProps {
-  label: string;
-  enabled?: boolean;
-  onChange?: (enabled: boolean) => void;
-}
-
-const SettingsToggle: React.FC<SettingsToggleProps> = ({ label, enabled = true, onChange }) => {
-  return (
-    <div
-      className="flex items-center gap-4 py-4 group cursor-pointer border-b border-gray-50 last:border-0"
-      onClick={() => onChange?.(!enabled)}
-    >
-      <div className={`w-12 h-6 rounded-full relative transition-colors p-1 ${enabled ? 'bg-emerald-500' : 'bg-gray-200'}`}>
-        <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${enabled ? 'translate-x-6' : 'translate-x-0'}`} />
-      </div>
-      <span className="text-[15px] font-medium text-gray-700 group-hover:text-blue-600 transition-colors">
-        {label}
-      </span>
-    </div>
-  );
-};
-
 const SettingsView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('EM GERAL');
+  const [activeTab, setActiveTab] = useState('WEBHOOK');
   const [webhookListening, setWebhookListening] = useState(false);
   const [lastEvent, setLastEvent] = useState<any>(null);
+
+  // URL base da Vercel (seria bom detectar automaticamente ou deixar um placeholder)
+  const baseUrl = window.location.origin;
 
   const tabs = [
     'EM GERAL', 'ATENDIMENTOS', 'CHAT INTERNO', 'PERMISSÕES',
     'INTEGRAÇÃO', 'AÇÕES POR LOTE', 'INTELIGENCIA ARTIFICIAL', 'SEGURANÇA', 'WEBHOOK'
   ];
 
-  const webhookUrls = {
-    test: 'https://n8n.canvazap.com.br/webhook-test/766a6d3a-57c8-428c-8f71-427ff834e6e2',
-    production: 'https://n8n.canvazap.com.br/webhook/766a6d3a-57c8-428c-8f71-427ff834e6e2'
-  };
+  const initialWebhooks = [
+    {
+      id: '1',
+      name: 'Evolution API (Mensagens)',
+      url: `${baseUrl}/api/webhook?type=evolution`,
+      description: 'Recebe mensagens enviadas e recebidas diretamente da Evolution.'
+    }
+  ];
+
+  const [webhooks, setWebhooks] = useState(initialWebhooks);
 
   // Escuta Real do Firestore
   useEffect(() => {
     let unsubscribe: any;
-
     if (webhookListening) {
-      console.log("Iniciando escuta real no Firestore (coleção: webhook_events)...");
       const q = query(
         collection(db, "webhook_events"),
         orderBy("timestamp", "desc"),
         limit(1)
       );
-
       unsubscribe = onSnapshot(q, (snapshot) => {
         snapshot.docChanges().forEach((change) => {
           if (change.type === "added") {
             const data = change.doc.data();
             const ts = data.timestamp instanceof Timestamp ? data.timestamp.toDate().toISOString() : data.timestamp;
-
-            setLastEvent({
-              ...data,
-              timestamp: ts,
-              _real: true
-            });
+            setLastEvent({ ...data, timestamp: ts });
           }
         });
-      }, (error) => {
-        console.error("Erro na escuta do Firestore:", error);
       });
     } else {
       setLastEvent(null);
     }
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    return () => unsubscribe?.();
   }, [webhookListening]);
 
   const copyToClipboard = (text: string) => {
@@ -87,165 +61,152 @@ const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="h-full w-full bg-gray-100 p-6 overflow-hidden flex flex-col">
+    <div className="h-full w-full bg-gray-100 p-6 overflow-hidden flex flex-col font-sans">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col flex-1 overflow-hidden">
         {/* Horizontal Navigation Tabs */}
-        <div className="flex border-b border-gray-100 overflow-x-auto no-scrollbar shrink-0">
+        <div className="flex border-b border-gray-100 overflow-x-auto no-scrollbar shrink-0 bg-white">
           {tabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-6 py-4 text-[11px] font-bold whitespace-nowrap relative transition-colors ${activeTab === tab ? 'text-blue-500' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`px-6 py-4 text-[11px] font-bold whitespace-nowrap relative transition-colors ${activeTab === tab ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
             >
               {tab}
-              {activeTab === tab && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-500" />}
+              {activeTab === tab && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
             </button>
           ))}
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-10 bg-white">
-          <div className="max-w-4xl">
+        <div className="flex-1 overflow-y-auto p-10 bg-[#f8fafc]">
+          <div className="max-w-5xl mx-auto space-y-8">
             {activeTab === 'WEBHOOK' ? (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="flex items-center justify-between p-6 bg-blue-50 rounded-2xl border border-blue-100">
-                  <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-xl ${webhookListening ? 'bg-emerald-500 text-white animate-pulse' : 'bg-gray-200 text-gray-500'}`}>
-                      <Activity size={24} />
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* Status Card */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mb-8 flex items-center justify-between">
+                  <div className="flex items-center gap-5">
+                    <div className={`p-4 rounded-2xl ${webhookListening ? 'bg-emerald-500 text-white animate-pulse' : 'bg-gray-100 text-gray-400'}`}>
+                      <Activity size={28} />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-gray-800">Status do Webhook</h3>
-                      <p className="text-sm text-gray-600">
-                        {webhookListening ? 'O sistema está escutando eventos em tempo real.' : 'Escuta desativada. Ative para receber dados do n8n.'}
+                      <h3 className="text-xl font-bold text-gray-800">Monitor de Webhooks</h3>
+                      <p className="text-sm text-gray-500">
+                        {webhookListening ? 'Escutando eventos em tempo real...' : 'Escuta desativada.'}
                       </p>
                     </div>
                   </div>
                   <button
                     onClick={() => setWebhookListening(!webhookListening)}
-                    className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all ${webhookListening
-                        ? 'bg-red-100 text-red-600 hover:bg-red-200'
-                        : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-200'
+                    className={`px-8 py-3 rounded-2xl font-bold text-sm transition-all shadow-lg active:scale-95 ${webhookListening
+                        ? 'bg-red-50 text-red-600 hover:bg-red-100 shadow-red-100'
+                        : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-100'
                       }`}
                   >
                     {webhookListening ? 'DESATIVAR ESCUTA' : 'ATIVAR ESCUTA'}
                   </button>
                 </div>
 
+                {/* Console Live */}
                 {webhookListening && (
-                  <div className="bg-gray-900 rounded-2xl p-6 font-mono text-xs overflow-hidden border border-gray-800 shadow-2xl animate-in zoom-in-95 duration-300">
-                    <div className="flex items-center justify-between mb-4 border-b border-gray-800 pb-4">
+                  <div className="mb-8 bg-slate-900 rounded-3xl p-6 font-mono text-xs border border-slate-800 shadow-2xl animate-in zoom-in-95 duration-300">
+                    <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                        <span className="text-emerald-500 font-bold uppercase tracking-widest text-[10px]">Console de Eventos Live</span>
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                        <span className="text-emerald-400 font-bold uppercase tracking-widest">Live Console</span>
                       </div>
-                      <span className="text-gray-500">v1.0.4 - REAL-TIME</span>
+                      <span className="text-slate-500">evolution_api_v2</span>
                     </div>
-
-                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar text-gray-300">
+                    <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
                       {lastEvent ? (
-                        <div className="animate-in fade-in duration-500">
-                          <p className="text-emerald-400 font-bold text-sm">[ {lastEvent.timestamp} ] DADO RECEBIDO:</p>
-                          <pre className="mt-2 text-blue-300 bg-blue-500/5 p-4 rounded-xl border border-blue-500/20 whitespace-pre-wrap break-all">
+                        <div className="animate-in fade-in slide-in-from-left-2 transition-all">
+                          <p className="text-emerald-400 font-bold flex items-center gap-2">
+                            <Check size={14} /> EVENTO RECEBIDO: {lastEvent.webhook_type || 'default'}
+                          </p>
+                          <pre className="mt-3 text-blue-300 bg-blue-500/5 p-4 rounded-2xl border border-blue-500/10 overflow-x-auto">
                             {JSON.stringify(lastEvent, null, 2)}
                           </pre>
                         </div>
                       ) : (
-                        <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-                          <div className="w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-4" />
-                          <p className="italic">Aguardando novo evento no Firestore (coleção: webhook_events)...</p>
+                        <div className="flex flex-col items-center justify-center py-12 text-slate-500 space-y-3">
+                          <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                          <p className="italic">Aguardando interação do WhatsApp...</p>
                         </div>
                       )}
                     </div>
                   </div>
                 )}
 
-                <div className="grid gap-6">
-                  <div className="space-y-3">
-                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Webhook de Teste (n8n)</label>
-                    <div className="flex gap-2">
-                      <div className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm font-mono text-gray-600 truncate">
-                        {webhookUrls.test}
-                      </div>
-                      <button onClick={() => copyToClipboard(webhookUrls.test)} className="p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors">
-                        <Copy size={18} />
-                      </button>
-                    </div>
+                {/* Webhooks Config List */}
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-black text-gray-400 uppercase tracking-[0.2em]">Seus Endpoints</h4>
+                    <button className="flex items-center gap-2 text-blue-600 text-sm font-bold hover:bg-blue-50 px-4 py-2 rounded-xl transition-colors">
+                      <Plus size={18} /> NOVO WEBHOOK
+                    </button>
                   </div>
 
-                  <div className="space-y-3">
-                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Webhook de Produção (n8n)</label>
-                    <div className="flex gap-2">
-                      <div className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm font-mono text-gray-600 truncate">
-                        {webhookUrls.production}
+                  <div className="grid gap-4">
+                    {webhooks.map((wh) => (
+                      <div key={wh.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h5 className="font-bold text-gray-800 text-lg">{wh.name}</h5>
+                            <p className="text-sm text-gray-500 mt-1">{wh.description}</p>
+                          </div>
+                          <button className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100">
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                        <div className="flex gap-2">
+                          <div className="flex-1 bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-mono text-gray-600 truncate flex items-center">
+                            {wh.url}
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(wh.url)}
+                            className="bg-gray-800 text-white px-5 rounded-2xl hover:bg-black transition-colors flex items-center gap-2 font-bold text-xs"
+                          >
+                            <Copy size={16} /> COPIAR URL
+                          </button>
+                        </div>
                       </div>
-                      <button onClick={() => copyToClipboard(webhookUrls.production)} className="p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors">
-                        <Copy size={18} />
-                      </button>
-                    </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
-                  <div className="flex items-center gap-2 text-gray-800">
-                    <Zap size={18} className="text-yellow-500" />
-                    <h4 className="font-bold">Como testar agora?</h4>
+                {/* Footer Help */}
+                <div className="mt-12 p-8 bg-blue-600 rounded-[2rem] text-white overflow-hidden relative group">
+                  <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
+                    <Zap size={120} fill="currentColor" />
                   </div>
-                  <div className="text-sm text-gray-600 space-y-3 leading-relaxed">
-                    <p>1. Ative a escuta no botão acima.</p>
-                    <p>2. No seu <b>n8n</b>, adicione um nó de <b>Firestore</b> após o Webhook.</p>
-                    <p>3. Configure para criar um documento na coleção: <code className="bg-gray-200 px-1.5 py-0.5 rounded font-bold text-blue-600">webhook_events</code></p>
-                    <p>4. No documento, inclua um campo chamado <code className="bg-gray-200 px-1.5 py-0.5 rounded font-bold text-blue-600">timestamp</code> (com a data atual) e o corpo da mensagem.</p>
-                  </div>
-                  <div className="pt-2">
-                    <a href="https://n8n.canvazap.com.br" target="_blank" rel="noreferrer" className="text-blue-500 text-xs font-bold flex items-center gap-1 hover:underline">
-                      ABRIR N8N <ExternalLink size={12} />
+                  <div className="relative z-10 max-w-2xl">
+                    <h4 className="text-xl font-bold mb-3 flex items-center gap-2">
+                      Dica de Mestre
+                    </h4>
+                    <p className="text-blue-100 leading-relaxed mb-6">
+                      Ao configurar a Evolution API, use o endpoint acima. O sistema vai ignorar o <b>n8n</b> e receber os dados diretamente,
+                      garantindo uma resposta muito mais rápida nas telas de atendimento.
+                    </p>
+                    <a href="https://evolution-api.com" target="_blank" rel="noreferrer" className="bg-white/20 hover:bg-white/30 px-6 py-2.5 rounded-xl font-bold text-sm transition-all inline-flex items-center gap-2">
+                      Doc Evolution API <ExternalLink size={14} />
                     </a>
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="space-y-1">
-                <SettingsToggle label="Agrupar mídias (imagens e vídeos)" />
-                <SettingsToggle label="Mostrar seção Contatos para todos" />
-                <SettingsToggle label="Mostrar seção Tags para todos" />
-                <SettingsToggle label="Mostrar seção Conexões para todos" />
-                <SettingsToggle label="Mostrar mensagens deletadas" />
-                <SettingsToggle label="Mostrar Todos os Atendimentos Resolvidos para todos" />
-                <SettingsToggle label="Mostrar seção Dashboard para todos" />
-                <SettingsToggle label="Os atendentes podem finalizar o Atendimento sem enviar pesquisa de satisfação, se ativada." />
-                <SettingsToggle label="Habilitar Carteira de Clientes" />
-                <SettingsToggle label="Mostrar Notas das mensagens dos tickets para todos usuários" />
-                <SettingsToggle label="Habilitar/Desabilitar segurança" enabled={false} />
+              <div className="flex items-center justify-center py-20 text-gray-400">
+                Aba {activeTab} em desenvolvimento...
               </div>
             )}
           </div>
-        </div>
-
-        {/* Footer info/save */}
-        <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end shrink-0">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-md transition-all active:scale-95">
-            SALVAR ALTERAÇÕES
-          </button>
         </div>
       </div>
 
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: #1a1a1a;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #333;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #444;
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
       `}</style>
     </div>
   );

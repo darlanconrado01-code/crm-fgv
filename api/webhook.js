@@ -1,5 +1,5 @@
 
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApp, getApps } from "firebase/app";
 import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -11,28 +11,33 @@ const firebaseConfig = {
     appId: "1:501480125467:web:dd834ac8eb8ad40a4a34be"
 };
 
-const app = initializeApp(firebaseConfig);
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
 
 export default async function handler(req, res) {
+    const { type } = req.query;
+
     if (req.method === 'POST') {
         try {
             const payload = req.body;
 
-            // Salva no Firestore
+            // Salva no Firestore com o tipo identificado
             await addDoc(collection(db, "webhook_events"), {
                 ...payload,
-                source: 'vercel-webhook',
+                webhook_type: type || 'evolution_direct',
+                source: 'vercel-api',
                 timestamp: serverTimestamp(),
                 receivedAt: new Date().toISOString()
             });
 
-            return res.status(200).json({ status: 'success' });
+            return res.status(200).json({ status: 'success', type });
         } catch (error) {
             return res.status(500).json({ status: 'error', message: error.message });
         }
     } else {
-        res.setHeader('Allow', ['POST']);
-        return res.status(405).end(`Method ${req.method} Not Allowed`);
+        return res.status(200).json({
+            message: "Webhook endpoint active",
+            endpoint_type: type || "generic"
+        });
     }
 }
