@@ -36,7 +36,7 @@ const AtendimentoView: React.FC = () => {
           agent: data.agent || 'Sem Agente',
           sector: data.sector || 'Geral',
           tags: data.tags || [],
-          avatarUrl: `https://ui-avatars.com/api/?name=${data.name || data.id}&background=random`,
+          avatarUrl: data.avatarUrl || `https://ui-avatars.com/api/?name=${data.name || data.id}&background=random`,
           unreadCount: data.unreadCount || 0,
           status: data.status || 'atendimento',
           remoteJid: data.remoteJid || ''

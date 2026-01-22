@@ -14,3 +14,16 @@ export interface ChatContact {
   status: 'atendimento' | 'aguardando' | 'bot' | 'resolvido' | 'pausado';
   remoteJid?: string;
 }
+
+export type CustomFieldType = 'string' | 'boolean' | 'text' | 'number' | 'select';
+
+export interface CustomField {
+  id: string;
+  label: string;
+  type: CustomFieldType;
+  placeholder?: string;
+  required: boolean;
+  active: boolean;
+  options?: string[];
+  updatedAt: any;
+}

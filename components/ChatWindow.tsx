@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Smile, Paperclip, MoreVertical, Search, Phone, Video, CheckCheck, Trash2, X, AlertTriangle } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp, writeBatch, getDocs, doc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp, writeBatch, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import { CustomField } from '../types';
 
 interface Message {
     id: string;
@@ -10,6 +11,10 @@ interface Message {
     fromMe: boolean;
     timestamp: any;
     type: string;
+    mediaUrl?: string;
+    mimeType?: string;
+    fileName?: string;
+    messageType?: string;
 }
 
 interface ChatWindowProps {
@@ -25,6 +30,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
     const [deleteConfirmText, setDeleteConfirmText] = useState('');
     const [isDeleting, setIsDeleting] = useState(false);
     const [showOptions, setShowOptions] = useState(false);
+    const [showSidebar, setShowSidebar] = useState(false);
+    const [customFields, setCustomFields] = useState<CustomField[]>([]);
+    const [contactData, setContactData] = useState<any>({});
+    const [savingField, setSavingField] = useState(false);
+    const [contactInfo, setContactInfo] = useState<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -33,6 +43,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
 
     useEffect(() => {
         if (!chatId) return;
+
+        // Limpar unreadCount ao abrir a conversa
+        const clearUnread = async () => {
+            try {
+                const batch = writeBatch(db);
+                batch.update(doc(db, "chats", chatId), { unreadCount: 0 });
+                await batch.commit();
+            } catch (e) {
+                console.error("Erro ao zerar unreadCount:", e);
+            }
+        };
+        clearUnread();
 
         const q = query(
             collection(db, "chats", chatId, "messages"),
@@ -50,6 +72,47 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
 
         return () => unsubscribe();
     }, [chatId]);
+
+    // Carregar campos personalizados e dados do contato
+    useEffect(() => {
+        if (!chatId) return;
+
+        // Escutar campos personalizados
+        const qFields = query(collection(db, "custom_fields"), orderBy("updatedAt", "asc"));
+        const unsubFields = onSnapshot(qFields, (snapshot) => {
+            const fields = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CustomField));
+            setCustomFields(fields.filter(f => f.active));
+        });
+
+        // Escutar dados do contato
+        const contactRef = doc(db, "contacts", chatId);
+        const unsubContact = onSnapshot(contactRef, (snapshot) => {
+            if (snapshot.exists()) {
+                const data = snapshot.data();
+                setContactInfo(data);
+                setContactData(data.customData || {});
+            }
+        });
+
+        return () => {
+            unsubFields();
+            unsubContact();
+        };
+    }, [chatId]);
+
+    const handleUpdateCustomField = async (fieldId: string, value: any) => {
+        setSavingField(true);
+        try {
+            const contactRef = doc(db, "contacts", chatId);
+            const newData = { ...contactData, [fieldId]: value };
+            await setDoc(contactRef, { customData: newData }, { merge: true });
+            setContactData(newData);
+        } catch (e) {
+            console.error("Erro ao atualizar campo:", e);
+        } finally {
+            setSavingField(false);
+        }
+    };
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -77,13 +140,25 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
                 throw new Error(errorData.message || 'Erro ao enviar mensagem');
             }
 
-            await addDoc(collection(db, "chats", chatId, "messages"), {
+            const batch = writeBatch(db);
+            const msgRef = doc(collection(db, "chats", chatId, "messages"));
+            const chatRef = doc(db, "chats", chatId);
+
+            batch.set(msgRef, {
                 text,
                 fromMe: true,
                 sender: 'me',
                 timestamp: serverTimestamp(),
                 type: 'chat'
             });
+
+            batch.update(chatRef, {
+                lastMessage: text,
+                updatedAt: serverTimestamp(),
+                unreadCount: 0
+            });
+
+            await batch.commit();
 
         } catch (error) {
             console.error("Error sending message:", error);
@@ -137,9 +212,16 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
 
             {/* Header */}
             <header className="h-16 bg-[#f0f2f5] border-b border-gray-200 flex items-center px-4 justify-between shrink-0 z-20 shadow-sm relative">
-                <div className="flex items-center gap-3">
+                <div
+                    className="flex items-center gap-3 cursor-pointer hover:bg-gray-200/50 py-1 px-2 rounded-xl transition-all"
+                    onClick={() => setShowSidebar(!showSidebar)}
+                >
                     <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-sm overflow-hidden border-2 border-white">
-                        <img src={`https://ui-avatars.com/api/?name=${contactName}&background=random`} alt={contactName} />
+                        <img
+                            src={contactInfo?.avatarUrl || `https://ui-avatars.com/api/?name=${contactName}&background=random`}
+                            alt={contactName}
+                            className="w-full h-full object-cover"
+                        />
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
@@ -183,6 +265,69 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
                     messages.map((msg) => (
                         <div key={msg.id} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-1 duration-300`}>
                             <div className={`max-w-[75%] rounded-2xl px-4 py-2 shadow-sm relative ${msg.fromMe ? 'bg-[#e7fed8] text-gray-800 rounded-tr-none border border-[#d1f4ba]' : 'bg-white text-gray-800 rounded-tl-none border border-white'}`}>
+
+                                {/* Mídia Rendering */}
+                                {msg.type === 'image' && msg.mediaUrl && (
+                                    <div className="mb-2 mt-1 rounded-lg overflow-hidden border border-gray-100 bg-gray-50 min-h-[100px] flex items-center justify-center">
+                                        <img
+                                            src={msg.mediaUrl.startsWith('data:') || msg.mediaUrl.startsWith('http')
+                                                ? msg.mediaUrl
+                                                : `data:${msg.mimeType || 'image/jpeg'};base64,${msg.mediaUrl}`}
+                                            alt="Photo"
+                                            className="max-w-full h-auto cursor-pointer hover:opacity-95 transition-opacity"
+                                            onClick={() => window.open(msg.mediaUrl, '_blank')}
+                                            onError={(e) => {
+                                                (e.target as HTMLImageElement).style.display = 'none';
+                                                const parent = (e.target as HTMLElement).parentElement;
+                                                if (parent) parent.innerHTML = '<div class="p-4 text-[10px] text-gray-400 font-bold uppercase text-center">Erro ao carregar imagem</div>';
+                                            }}
+                                        />
+                                    </div>
+                                )}
+
+                                {msg.type === 'video' && msg.mediaUrl && (
+                                    <div className="mb-2 mt-1 rounded-lg overflow-hidden border border-gray-100 bg-black min-h-[100px] flex items-center justify-center text-white">
+                                        <video controls className="max-w-full h-auto">
+                                            <source src={msg.mediaUrl.startsWith('http') ? msg.mediaUrl : `data:${msg.mimeType || 'video/mp4'};base64,${msg.mediaUrl}`} type={msg.mimeType || 'video/mp4'} />
+                                            Seu navegador não suporta vídeos.
+                                        </video>
+                                    </div>
+                                )}
+
+                                {msg.type === 'audio' && msg.mediaUrl && (
+                                    <div className="mb-2 mt-1">
+                                        <audio controls className="w-full h-10">
+                                            <source src={msg.mediaUrl.startsWith('http') ? msg.mediaUrl : `data:${msg.mimeType || 'audio/ogg'};base64,${msg.mediaUrl}`} type={msg.mimeType || 'audio/ogg'} />
+                                            Seu navegador não suporta áudio.
+                                        </audio>
+                                    </div>
+                                )}
+
+                                {msg.type === 'document' && msg.mediaUrl && (
+                                    <div className="mb-2 mt-1 p-3 bg-gray-50 rounded-xl border border-gray-100 flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-[10px] uppercase">
+                                            {msg.fileName?.split('.').pop() || 'DOC'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-bold text-gray-800 truncate">{msg.fileName || 'Arquivo'}</p>
+                                            <a
+                                                href={msg.mediaUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[10px] text-blue-500 font-bold hover:underline"
+                                            >
+                                                DOWNLOAD
+                                            </a>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {msg.type === 'sticker' && msg.mediaUrl && (
+                                    <div className="mb-2 mt-1 w-32 h-32">
+                                        <img src={msg.mediaUrl} alt="Sticker" className="w-full h-full object-contain" />
+                                    </div>
+                                )}
+
                                 <p className="text-[14px] whitespace-pre-wrap leading-relaxed pb-3 pr-10">{msg.text}</p>
                                 <div className="absolute bottom-1.5 right-2 flex items-center gap-1">
                                     <span className="text-[9px] text-gray-400 font-bold">{formatTime(msg.timestamp)}</span>
@@ -198,6 +343,106 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
                 )}
                 <div ref={messagesEndRef} />
             </div>
+
+            {/* Contact Info Sidebar */}
+            {showSidebar && (
+                <div className="absolute top-16 bottom-0 right-0 w-[400px] bg-white border-l border-gray-100 z-[40] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+                    <div className="p-8 flex flex-col items-center border-b border-gray-50 bg-gradient-to-b from-blue-50/30 to-white">
+                        <div className="w-28 h-28 rounded-[2.5rem] bg-indigo-500 shadow-2xl border-4 border-white overflow-hidden mb-6 group relative">
+                            <img
+                                src={contactInfo?.avatarUrl || `https://ui-avatars.com/api/?name=${contactName}&background=random`}
+                                alt={contactName}
+                                className="w-full h-full object-cover"
+                            />
+                        </div>
+                        <h2 className="text-xl font-black text-gray-800 uppercase tracking-tight">{contactName}</h2>
+                        <p className="text-sm font-bold text-gray-400 mt-1">{chatId}</p>
+
+                        <div className="flex gap-4 mt-6">
+                            <button className="w-12 h-12 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-500 hover:border-blue-100 transition-all">
+                                <Phone size={20} />
+                            </button>
+                            <button className="w-12 h-12 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-500 hover:border-blue-100 transition-all">
+                                <Video size={20} />
+                            </button>
+                            <button className="w-12 h-12 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-center text-gray-400 hover:text-red-500 hover:border-red-100 transition-all">
+                                <X size={20} onClick={() => setShowSidebar(false)} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                        <div>
+                            <div className="flex items-center justify-between mb-4">
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Informações do Lead</span>
+                                {savingField && <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+                            </div>
+
+                            <div className="space-y-6">
+                                {customFields.length === 0 ? (
+                                    <div className="p-8 border-2 border-dashed border-gray-100 rounded-3xl text-center">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-relaxed">
+                                            Nenhum campo personalizado cadastrado. Vá em Admin para configurar.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    customFields.map(field => (
+                                        <div key={field.id} className="space-y-2 group">
+                                            <div className="flex items-center justify-between px-1">
+                                                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide group-focus-within:text-blue-600 transition-colors">
+                                                    {field.label} {field.required && <span className="text-red-500">*</span>}
+                                                </label>
+                                            </div>
+
+                                            {field.type === 'select' ? (
+                                                <select
+                                                    className="w-full bg-gray-50/50 border border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-200 transition-all appearance-none cursor-pointer"
+                                                    value={contactData[field.id] || ''}
+                                                    onChange={(e) => handleUpdateCustomField(field.id, e.target.value)}
+                                                >
+                                                    <option value="">Selecione...</option>
+                                                    {field.options?.map(opt => (
+                                                        <option key={opt} value={opt}>{opt}</option>
+                                                    ))}
+                                                </select>
+                                            ) : field.type === 'boolean' ? (
+                                                <div className="flex items-center gap-3">
+                                                    <button
+                                                        onClick={() => handleUpdateCustomField(field.id, contactData[field.id] === 'Sim' ? 'Não' : 'Sim')}
+                                                        className={`w-14 h-7 rounded-full relative transition-all duration-300 ${contactData[field.id] === 'Sim' ? 'bg-emerald-500 shadow-inner' : 'bg-gray-200'}`}
+                                                    >
+                                                        <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-md ${contactData[field.id] === 'Sim' ? 'left-8' : 'left-1'}`} />
+                                                    </button>
+                                                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest">
+                                                        {contactData[field.id] === 'Sim' ? 'Sim' : 'Não'}
+                                                    </span>
+                                                </div>
+                                            ) : field.type === 'text' ? (
+                                                <textarea
+                                                    className="w-full bg-gray-50/50 border border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-200 transition-all min-h-[100px] resize-none"
+                                                    placeholder={field.placeholder || `Digite o ${field.label.toLowerCase()}`}
+                                                    value={contactData[field.id] || ''}
+                                                    onBlur={(e) => handleUpdateCustomField(field.id, e.target.value)}
+                                                    onChange={(e) => setContactData({ ...contactData, [field.id]: e.target.value })}
+                                                />
+                                            ) : (
+                                                <input
+                                                    type={field.type === 'number' ? 'number' : 'text'}
+                                                    className="w-full bg-gray-50/50 border border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-200 transition-all"
+                                                    placeholder={field.placeholder || `Digite o ${field.label.toLowerCase()}`}
+                                                    value={contactData[field.id] || ''}
+                                                    onBlur={(e) => handleUpdateCustomField(field.id, e.target.value)}
+                                                    onChange={(e) => setContactData({ ...contactData, [field.id]: e.target.value })}
+                                                />
+                                            )}
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Input Area */}
             <footer className="bg-[#f0f2f5] p-3 flex items-center gap-2 z-20 border-t border-gray-200/50">
