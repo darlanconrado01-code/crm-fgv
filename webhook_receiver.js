@@ -180,6 +180,14 @@ app.post('/webhook', async (req, res) => {
 
                     if (!botSnap.empty) {
                         const bot = botSnap.docs[0].data();
+
+                        // ATRIBUIR RESPONSÁVEL E SETOR (Garantir que o robô é o dono do lead no setor correto)
+                        await setDoc(chatRef, {
+                            agent: bot.name,
+                            agentId: bot.id,
+                            sector: bot.sector || 'Geral'
+                        }, { merge: true });
+
                         const settingsSnap = await getDoc(doc(db, "settings", "evolution"));
                         const settings = settingsSnap.exists() ? settingsSnap.data() : {};
                         const openaiKey = settings.openaiApiKey;
