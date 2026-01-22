@@ -115,8 +115,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
                         <img src={`https://ui-avatars.com/api/?name=${contactName}&background=random`} alt={contactName} />
                     </div>
                     <div>
-                        <h3 className="font-bold text-gray-800 text-sm leading-tight">{contactName}</h3>
-                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest">Online</p>
+                        <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-gray-800 text-sm leading-tight">{contactName}</h3>
+                            <span className="text-gray-400 text-xs font-medium">({chatId})</span>
+                        </div>
+                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest leading-none mt-1">Online</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-5 text-gray-400">
