@@ -1,6 +1,6 @@
 
 import { initializeApp, getApp, getApps } from "firebase/app";
-import { getFirestore, collection, addDoc, serverTimestamp, doc, setDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, serverTimestamp, doc, setDoc, getDoc } from "firebase/firestore";
 
 const firebaseConfig = {
     apiKey: "AIzaSyC8Bswi9age_G9Lktb82QwA0QtixOdaEsc",
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
         try {
             const payload = req.body;
-            const { event, data, sender } = payload;
+            const { event, data } = payload;
 
             // 1. Log do evento para o Monitor
             await addDoc(collection(db, "webhook_events"), {
@@ -28,10 +28,13 @@ export default async function handler(req, res) {
 
             // 2. Processamento inteligente de mensagens
             if (event === 'messages.upsert') {
-                const phone = sender.split('@')[0];
+                // IMPORTANTE: remoteJid é o ID real da conversa (pode ser o número do contato ou o ID do grupo)
+                const remoteJid = data.key.remoteJid;
+                const phone = remoteJid.split('@')[0];
                 const pushName = data.pushName || 'Contato';
+                const fromMe = data.key.fromMe || false;
 
-                // Detecta o tipo de mensagem para não mostrar "Mídia/Outro"
+                // Detecta o tipo de mensagem
                 let messageText = 'Mídia (Imagem/Áudio/Arquivo)';
 
                 if (data.message?.conversation) {
@@ -50,22 +53,23 @@ export default async function handler(req, res) {
 
                 const chatRef = doc(db, "chats", phone);
 
-                // Atualiza a lista lateral
+                // Atualiza a lista lateral (Chat List)
                 await setDoc(chatRef, {
                     id: phone,
-                    name: pushName,
+                    remoteJid: remoteJid, // Guardamos o JID completo para envios futuros
+                    name: fromMe ? (await getDoc(chatRef)).data()?.name || pushName : pushName,
                     lastMessage: messageText,
                     updatedAt: serverTimestamp(),
-                    unreadCount: data.key.fromMe ? 0 : 1,
+                    unreadCount: fromMe ? 0 : 1,
                     status: 'pending'
                 }, { merge: true });
 
-                // Salva no histórico
+                // Salva no histórico de mensagens
                 await addDoc(collection(chatRef, "messages"), {
                     text: messageText,
-                    sender: phone,
+                    sender: payload.sender || remoteJid,
                     pushName: pushName,
-                    fromMe: data.key.fromMe || false,
+                    fromMe: fromMe,
                     timestamp: serverTimestamp(),
                     type: 'chat'
                 });
@@ -73,6 +77,7 @@ export default async function handler(req, res) {
 
             return res.status(200).json({ status: 'success' });
         } catch (error) {
+            console.error(error);
             return res.status(500).json({ status: 'error', message: error.message });
         }
     } else {

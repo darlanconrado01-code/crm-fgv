@@ -67,7 +67,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName }) => {
                 },
                 body: JSON.stringify({
                     chatId: chatId,
-                    text: text
+                    text: text,
+                    contactName: contactName
                 })
             });
 
