@@ -24,30 +24,43 @@ export default async function handler(req, res) {
         const configDoc = await getDoc(doc(db, "settings", "evolution"));
         const config = configDoc.exists() ? configDoc.data() : {};
 
-        // Prioridade para o Webhook do N8N
         const n8nUrl = config.n8nSendUrl || 'https://n8n.canvazap.com.br/webhook-test/799c3543-026d-472f-a852-460f69c4d166';
 
-        console.log('--- ENVIANDO MENSAGE PARA N8N ---');
-        console.log('URL:', n8nUrl);
+        // 2. Montar o JSON estruturado IGUAL ao da Evolution API
+        const evolutionStructuredBody = {
+            event: "messages.upsert",
+            instance: config.instance || "EnduroAguas",
+            data: {
+                key: {
+                    remoteJid: `${chatId}@s.whatsapp.net`,
+                    fromMe: true,
+                    id: `CRM-${Date.now()}`
+                },
+                pushName: "CRM FGV",
+                message: {
+                    conversation: text
+                },
+                messageType: "conversation",
+                messageTimestamp: Math.floor(Date.now() / 1000),
+                source: "web"
+            },
+            sender: `${chatId}@s.whatsapp.net`,
+            apikey: config.apiKey || "",
+            server_url: config.url || ""
+        };
 
-        // 2. Disparar para o Webhook do N8N
+        console.log('--- ENVIANDO MENSAGEM PADRONIZADA (EVOLUTION STYLE) PARA N8N ---');
+
+        // 3. Disparar para o Webhook do N8N
         const response = await fetch(n8nUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                chatId: chatId,
-                text: text,
-                instance: config.instance || 'EnduroAguas',
-                apiKey: config.apiKey || '',
-                evolutionUrl: config.url || '',
-                timestamp: new Date().toISOString(),
-                source: 'CRM FGV'
-            })
+            body: JSON.stringify(evolutionStructuredBody)
         });
 
-        const data = await response.text(); // n8n às vezes retorna string simples
+        const data = await response.text();
 
         return res.status(200).json({ status: 'success', data });
 
