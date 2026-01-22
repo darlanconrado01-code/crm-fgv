@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Settings, Shield, Bell, User, Palette, Globe, Check,
   Webhook, Activity, Copy, ExternalLink, Zap, Plus, Trash2,
-  Database, Key, Link2, Save
+  Database, Key, Link2, Save, Edit3
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, orderBy, onSnapshot, Timestamp, doc, setDoc, getDoc, limit } from 'firebase/firestore';
@@ -21,6 +21,7 @@ const SettingsView: React.FC = () => {
     n8nSendUrl: 'https://n8n.canvazap.com.br/webhook-test/799c3543-026d-472f-a852-460f69c4d166'
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditingN8N, setIsEditingN8N] = useState(false);
 
   const baseUrl = window.location.origin;
 
@@ -45,6 +46,7 @@ const SettingsView: React.FC = () => {
     setIsSaving(true);
     try {
       await setDoc(doc(db, "settings", "evolution"), evolutionConfig);
+      setIsEditingN8N(false);
       alert('Configurações salvas com sucesso!');
     } catch (error) {
       alert('Erro ao salvar: ' + error.message);
@@ -58,13 +60,8 @@ const SettingsView: React.FC = () => {
       id: '1',
       name: 'Evolution API (Mensagens)',
       url: `${baseUrl}/api/webhook?type=evolution`,
-      description: 'Recebe mensagens enviadas e recebidas diretamente da Evolution.'
-    },
-    {
-      id: '2',
-      name: 'Webhook de Envio (N8N)',
-      url: evolutionConfig.n8nSendUrl,
-      description: 'Para onde o CRM envia as mensagens que você digita na tela.'
+      description: 'Recebe mensagens enviadas e recebidas diretamente da Evolution.',
+      type: 'ENTRADA'
     }
   ];
 
@@ -222,26 +219,74 @@ const SettingsView: React.FC = () => {
                 </div>
 
                 <div className="grid gap-6">
+                  {/* Webhook Entrada */}
                   {initialWebhooks.map((wh) => (
                     <div key={wh.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm group">
                       <div className="flex items-center justify-between mb-4">
                         <h5 className="font-bold text-gray-800 text-lg">{wh.name}</h5>
-                        <div className="text-[10px] font-black bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full uppercase tracking-wider">{wh.id === '1' ? 'ENTRADA' : 'SAÍDA'}</div>
+                        <div className="text-[10px] font-black bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full uppercase tracking-wider">ENTRADA</div>
                       </div>
                       <p className="text-xs text-gray-500 mb-4">{wh.description}</p>
                       <div className="flex gap-2">
-                        <div className="flex-1 bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-mono text-gray-600 truncate">
+                        <div className="flex-1 bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-mono text-gray-600 truncate flex items-center">
                           {wh.url}
                         </div>
                         <button
                           onClick={() => copyToClipboard(wh.url)}
-                          className="bg-gray-800 text-white px-5 rounded-2xl hover:bg-black transition-colors font-bold text-xs"
+                          className="bg-gray-800 text-white px-5 rounded-2xl hover:bg-black transition-colors font-bold text-xs shrink-0"
                         >
                           COPIAR URL
                         </button>
                       </div>
                     </div>
                   ))}
+
+                  {/* Webhook Saída Editável */}
+                  <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm group">
+                    <div className="flex items-center justify-between mb-4">
+                      <h5 className="font-bold text-gray-800 text-lg">Webhook de Envio (N8N)</h5>
+                      <div className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full uppercase tracking-wider">SAÍDA</div>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-4">Para onde o CRM envia as mensagens que você digita na tela.</p>
+
+                    <div className="flex gap-2">
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          value={evolutionConfig.n8nSendUrl}
+                          onChange={(e) => setEvolutionConfig({ ...evolutionConfig, n8nSendUrl: e.target.value })}
+                          disabled={!isEditingN8N}
+                          placeholder="https://sua-n8n.com/webhook/..."
+                          className={`w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-sm font-mono text-gray-600 outline-none transition-all ${isEditingN8N ? 'ring-2 ring-emerald-500 bg-white shadow-inner' : 'truncate cursor-default'}`}
+                        />
+                      </div>
+
+                      {isEditingN8N ? (
+                        <button
+                          onClick={handleSaveEvolution}
+                          disabled={isSaving}
+                          className="bg-emerald-500 text-white px-5 rounded-2xl hover:bg-emerald-600 transition-colors font-bold text-xs shrink-0 flex items-center gap-2"
+                        >
+                          <Save size={14} /> SALVAR
+                        </button>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setIsEditingN8N(true)}
+                            className="bg-gray-100 text-gray-600 px-5 rounded-2xl hover:bg-gray-200 transition-colors font-bold text-xs shrink-0 flex items-center gap-2"
+                          >
+                            <Edit3 size={14} /> EDITAR
+                          </button>
+                          <button
+                            onClick={() => copyToClipboard(evolutionConfig.n8nSendUrl)}
+                            className="bg-gray-800 text-white px-5 rounded-2xl hover:bg-black transition-colors font-bold text-xs shrink-0"
+                          >
+                            COPIAR
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
