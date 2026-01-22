@@ -11,12 +11,13 @@ import {
     Save,
     X,
     Database,
-    AlertCircle
+    AlertCircle,
+    ListFilter
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
-export type CustomFieldType = 'string' | 'boolean' | 'text' | 'number';
+export type CustomFieldType = 'string' | 'boolean' | 'text' | 'number' | 'select';
 
 export interface CustomField {
     id: string;
@@ -25,6 +26,7 @@ export interface CustomField {
     placeholder?: string;
     required: boolean;
     active: boolean;
+    options?: string[]; // Para campos do tipo 'select'
     updatedAt: any;
 }
 
@@ -81,6 +83,7 @@ const CustomFieldsView: React.FC = () => {
             case 'number': return <Hash size={18} className="text-orange-500" />;
             case 'boolean': return <CheckSquare size={18} className="text-emerald-500" />;
             case 'text': return <AlignLeft size={18} className="text-purple-500" />;
+            case 'select': return <ListFilter size={18} className="text-amber-500" />;
             default: return <Database size={18} />;
         }
     };
@@ -91,6 +94,7 @@ const CustomFieldsView: React.FC = () => {
             case 'number': return 'Número';
             case 'boolean': return 'Booleano (Sim/Não)';
             case 'text': return 'Texto Longo';
+            case 'select': return 'Menu Suspenso';
             default: return type;
         }
     };
@@ -159,8 +163,9 @@ const CustomFieldsView: React.FC = () => {
                                     </div>
                                     <div className="flex flex-col items-end gap-1">
                                         <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-tighter ${field.type === 'string' ? 'bg-blue-50 text-blue-600' :
-                                                field.type === 'number' ? 'bg-orange-50 text-orange-600' :
-                                                    field.type === 'boolean' ? 'bg-emerald-50 text-emerald-600' :
+                                            field.type === 'number' ? 'bg-orange-50 text-orange-600' :
+                                                field.type === 'boolean' ? 'bg-emerald-50 text-emerald-600' :
+                                                    field.type === 'select' ? 'bg-amber-50 text-amber-600' :
                                                         'bg-purple-50 text-purple-600'
                                             }`}>
                                             {getTypeName(field.type)}
@@ -244,13 +249,14 @@ const CustomFieldsView: React.FC = () => {
                                         { id: 'text', label: 'Texto Longo', icon: AlignLeft },
                                         { id: 'number', label: 'Número', icon: Hash },
                                         { id: 'boolean', label: 'Sim/Não', icon: CheckSquare },
+                                        { id: 'select', label: 'Menu Suspenso', icon: ListFilter },
                                     ].map((type) => (
                                         <button
                                             key={type.id}
                                             onClick={() => setEditingField({ ...editingField, type: type.id as CustomFieldType })}
                                             className={`flex items-center gap-3 p-4 rounded-2xl border transition-all text-left ${editingField?.type === type.id
-                                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm'
-                                                    : 'bg-white border-gray-100 text-gray-500 hover:bg-gray-50'
+                                                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm'
+                                                : 'bg-white border-gray-100 text-gray-500 hover:bg-gray-50'
                                                 }`}
                                         >
                                             <type.icon size={20} className={editingField?.type === type.id ? 'text-indigo-600' : 'text-gray-400'} />
@@ -259,6 +265,47 @@ const CustomFieldsView: React.FC = () => {
                                     ))}
                                 </div>
                             </div>
+
+                            {/* Options for Select */}
+                            {editingField?.type === 'select' && (
+                                <div className="space-y-4">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Opções do Menu</label>
+                                    <div className="space-y-2">
+                                        {(editingField.options || []).map((option, index) => (
+                                            <div key={index} className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={option}
+                                                    onChange={(e) => {
+                                                        const newOptions = [...(editingField.options || [])];
+                                                        newOptions[index] = e.target.value;
+                                                        setEditingField({ ...editingField, options: newOptions });
+                                                    }}
+                                                    className="flex-1 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2 text-sm font-medium outline-none"
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        const newOptions = (editingField.options || []).filter((_, i) => i !== index);
+                                                        setEditingField({ ...editingField, options: newOptions });
+                                                    }}
+                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <button
+                                            onClick={() => {
+                                                const newOptions = [...(editingField.options || []), ''];
+                                                setEditingField({ ...editingField, options: newOptions });
+                                            }}
+                                            className="w-full py-2 border-2 border-dashed border-gray-200 rounded-xl text-xs font-black text-gray-400 uppercase tracking-widest hover:border-indigo-300 hover:text-indigo-500 transition-all"
+                                        >
+                                            + Adicionar Opção
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Placeholder */}
                             {editingField?.type !== 'boolean' && (
