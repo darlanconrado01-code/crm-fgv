@@ -218,6 +218,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
         scrollToBottom();
     }, [messages]);
 
+    useEffect(() => {
+        const q = query(collection(db, "task_projects"), orderBy("createdAt", "desc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const projectsData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setTaskProjects(projectsData);
+        });
+        return () => unsubscribe();
+    }, []);
+
     // --- RESTORED HANDLERS ---
     const handleUpdateDisplayPhone = async (editedPhone?: string) => {
         const phoneToUpdate = editedPhone || editedDisplayPhone;
@@ -2813,6 +2825,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
                                                 });
                                             }}
                                         >
+                                            <option value="">Selecione um Projeto</option>
                                             {taskProjects.map(p => (
                                                 <option key={p.id} value={p.id}>{p.title}</option>
                                             ))}
