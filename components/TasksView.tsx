@@ -34,8 +34,15 @@ import {
   Upload,
   Search,
   Archive,
-  Repeat
+  Repeat,
+  TrendingUp,
+  TrendingDown,
+  Bot
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, AreaChart, Area, LineChart, Line
+} from 'recharts';
 import { db } from '../firebase';
 import {
   collection,
@@ -203,17 +210,7 @@ const AuditView: React.FC<{ tasks: Task[], onTaskClick: (task: Task) => void }> 
   );
 };
 
-const SummaryCard: React.FC<{ value: string | number, label: string, color: string, icon: any }> = ({ value, label, color, icon: Icon }) => (
-  <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-gray-100 flex-1 flex items-center justify-between min-w-[240px] hover:shadow-xl transition-all duration-500 group">
-    <div>
-      <div className="text-5xl font-black mb-1 tracking-tighter transition-transform group-hover:scale-110" style={{ color }}>{value}</div>
-      <div className="text-xs font-black text-gray-500 uppercase tracking-widest">{label}</div>
-    </div>
-    <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-200 group-hover:bg-gray-100 group-hover:text-gray-400 transition-all">
-      <Icon size={32} />
-    </div>
-  </div>
-);
+
 
 const ProjectCard: React.FC<{
   project: Project,
@@ -771,6 +768,31 @@ const SmallProjectCard: React.FC<{
   </div>
 );
 
+const DashboardMetric: React.FC<{ value: number | string, label: string, color: string, icon: any, trend?: string }> = ({ value, label, color, icon: Icon, trend }) => (
+  <div className="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm flex items-center gap-5 hover:shadow-md transition-all group relative overflow-hidden">
+    <div className="p-4 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110" style={{ backgroundColor: `${color}15`, color: color }}>
+      <Icon size={24} />
+    </div>
+    <div className="flex-1 min-w-0">
+      <div className="text-2xl font-black text-gray-800 tracking-tighter flex items-baseline gap-2">
+        {value}
+        {trend && (
+          <span className={`text-[9px] font-black uppercase flex items-center gap-1 ${trend.startsWith('+') ? 'text-emerald-500' : 'text-rose-500'}`}>
+            {trend.startsWith('+') ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+            {trend}
+          </span>
+        )}
+      </div>
+      <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest truncate">{label}</div>
+    </div>
+    <div className="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity">
+      <Icon size={80} />
+    </div>
+  </div>
+);
+
+const SummaryCard = DashboardMetric;
+
 const TasksView: React.FC<{
   user: any,
   initialNavigation?: { taskId: string, projectId: string } | null,
@@ -802,6 +824,8 @@ const TasksView: React.FC<{
   const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
   const [dashboardUserFilter, setDashboardUserFilter] = useState('all');
   const [dashboardClientFilter, setDashboardClientFilter] = useState('all');
+  const [allChats, setAllChats] = useState<any[]>([]);
+  const [allContactsCount, setAllContactsCount] = useState(0);
 
   // Fetch Global Tasks for Dashboard (Timeline & Audit)
   React.useEffect(() => {
@@ -869,14 +893,26 @@ const TasksView: React.FC<{
     return () => unsubscribe();
   }, []);
 
-  // Fetch Contacts for Search
+  // Fetch Contacts for Stats & Search
   React.useEffect(() => {
-    const q = query(collection(db, "contacts"), orderBy("name", "asc"));
+    const q = query(collection(db, "contacts"), orderBy("updatedAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      setAllContactsCount(snapshot.size);
       setAllContacts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contact)).slice(0, 100));
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch Chats for Service Stats
+  React.useEffect(() => {
+    if (currentView === 'dashboard') {
+      const q = query(collection(db, "chats"), limit(1000));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setAllChats(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+      return () => unsubscribe();
+    }
+  }, [currentView]);
 
   // Fetch Projects
   React.useEffect(() => {
@@ -1963,19 +1999,55 @@ const TasksView: React.FC<{
     const sourceTasks = currentView === 'dashboard' ? dashboardFilteredTasks : kanbanFilteredTasks;
     const sourceProjects = currentView === 'dashboard' ? projects : (selectedProject ? [selectedProject] : projects);
 
-    // Filter projects based on the active tasks if in dashboard
     const filteredProjects = currentView === 'dashboard'
       ? projects.filter(p => dashboardFilteredTasks.some(t => t.projectId === p.id) || (dashboardUserFilter === 'all' && dashboardClientFilter === 'all' && p.totalTasks > 0))
       : sourceProjects;
+
+    // Chat Filter Logic
+    const filteredChats = allChats.filter(c => {
+      const matchUser = dashboardUserFilter === 'all' || (c.agent || '').toLowerCase() === dashboardUserFilter.toLowerCase();
+      const matchClient = dashboardClientFilter === 'all' || dashboardClientFilter === '' || (c.name || '').toLowerCase().includes(dashboardClientFilter.toLowerCase());
+      return matchUser && matchClient;
+    });
+
+    // Chat Status Stats
+    const chatsPendente = filteredChats.filter(c => c.status === 'aguardando' || !c.status).length;
+    const chatsAtendimento = filteredChats.filter(c => c.status === 'atendimento').length;
+    const chatsBot = filteredChats.filter(c => c.status === 'bot').length;
+    const chatsResolvido = filteredChats.filter(c => c.status === 'concluido' || c.status === 'resolvido').length;
+
+    // Agent Stats (for Chart)
+    const agentStats = allUsers.map(u => {
+      const count = allChats.filter(c => (c.agent || '').toLowerCase() === u.name.toLowerCase()).length;
+      return { name: u.name, count, avatar: u.avatar };
+    }).filter(a => a.count > 0).sort((a, b) => b.count - a.count);
+
+    // Peak Hours Chart Data (last 24h proxy) 
+    const hours = Array.from({ length: 24 }, (_, i) => ({ hour: `${i}h`, count: 0 }));
+    allChats.forEach(c => {
+      if (c.updatedAt instanceof Timestamp) {
+        const hour = c.updatedAt.toDate().getHours();
+        hours[hour].count++;
+      }
+    });
 
     return {
       totalProjects: filteredProjects.length,
       totalTasks: sourceTasks.length,
       tasksAssigned: sourceTasks.filter(t => !!t.responsible || (t.assignees && t.assignees.length > 0)).length,
       tasksCompleted: sourceTasks.filter(t => t.status === 'completed').length,
-      tasksOverdue: sourceTasks.filter(t => t.endDate && new Date(t.endDate) < new Date() && t.status !== 'completed').length
+      tasksOverdue: sourceTasks.filter(t => t.endDate && new Date(t.endDate) < new Date() && t.status !== 'completed').length,
+      // Chat Stats
+      chatsPendente,
+      chatsAtendimento,
+      chatsBot,
+      chatsResolvido,
+      chatsTotal: filteredChats.length,
+      contactsCount: allContactsCount,
+      agentStats,
+      peakHours: hours
     };
-  }, [currentView, dashboardFilteredTasks, kanbanFilteredTasks, projects, selectedProject, dashboardUserFilter, dashboardClientFilter]);
+  }, [currentView, dashboardFilteredTasks, kanbanFilteredTasks, projects, selectedProject, dashboardUserFilter, dashboardClientFilter, allChats, allContactsCount, allUsers]);
 
   // Dashboard Derived Data
   const filteredActiveProjects = React.useMemo(() => {
@@ -2858,36 +2930,155 @@ const TasksView: React.FC<{
         {/* Header Info */}
         <div className="flex items-center gap-4 mb-10">
           <div className="p-4 bg-blue-600 rounded-3xl text-white shadow-xl shadow-blue-500/20">
-            <ClipboardList size={28} />
+            <Activity size={28} />
           </div>
           <div>
-            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">Tarefas</h1>
-            <p className="text-gray-400 font-bold text-sm tracking-wide uppercase mt-0.5">Gerenciamento de produtividade</p>
+            <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">Dashboard Operacional</h1>
+            <p className="text-gray-400 font-bold text-sm tracking-wide uppercase mt-0.5">Visão geral do sistema em tempo real</p>
           </div>
-          <button
-            onClick={() => setMeOnly(!meOnly)}
-            className={`ml-auto flex items-center gap-2 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${meOnly ? 'bg-blue-600 text-white shadow-xl' : 'bg-white text-gray-400 border-2 border-gray-100 hover:border-blue-200'}`}
-          >
-            <User2 size={16} />
-            {meOnly ? 'Minhas Tarefas' : 'Todas as Tarefas'}
-          </button>
+          <div className="ml-auto flex items-center gap-3">
+            <button
+              onClick={() => setMeOnly(!meOnly)}
+              className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${meOnly ? 'bg-blue-600 text-white shadow-xl' : 'bg-white text-gray-400 border-2 border-gray-100 hover:border-blue-200'}`}
+            >
+              <User2 size={16} />
+              {meOnly ? 'Minhas Métricas' : 'Geral'}
+            </button>
+          </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 mb-12">
-          <SummaryCard value={stats.totalProjects} label="Projetos Total" color="#ef4444" icon={Clock} />
-          <SummaryCard value={stats.totalTasks} label="Tarefas Total" color="#f59e0b" icon={ClipboardList} />
-          <SummaryCard value={stats.tasksAssigned} label="Tarefas Atribuídas" color="#0ea5e9" icon={Users} />
-          <SummaryCard value={stats.tasksCompleted} label="Tarefas Completadas" color="#10b981" icon={CheckCircle2} />
-          <SummaryCard value={stats.tasksOverdue} label="Tarefas Atrasadas" color="#a855f7" icon={AlertCircle} />
+        {/* Global Performance Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-12">
+          <DashboardMetric color="#f59e0b" icon={Clock} label="Pendentes" value={stats.chatsPendente} />
+          <DashboardMetric color="#3b82f6" icon={MessageSquare} label="Atendimento" value={stats.chatsAtendimento} />
+          <DashboardMetric color="#8b5cf6" icon={Bot} label="Bot" value={stats.chatsBot} />
+          <DashboardMetric color="#10b981" icon={CheckCircle2} label="Resolvidos" value={stats.chatsResolvido} />
+          <DashboardMetric color="#6366f1" icon={Users} label="Total Chats" value={stats.chatsTotal} />
+          <DashboardMetric color="#ec4899" icon={UserPlus} label="Leads / CRM" value={stats.contactsCount} />
+        </div>
+
+        {/* Analytics Charts & Agent Performance */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 mb-12">
+          {/* Main Chart: Agent Performance */}
+          <div className="lg:col-span-8 bg-white p-8 rounded-[3rem] border border-gray-100 shadow-sm flex flex-col min-h-[450px]">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter">Desempenho por Agente</h3>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Volume total de atendimentos por consultor</p>
+              </div>
+            </div>
+
+            <div className="flex-1 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.agentStats} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 900 }}
+                    interval={0}
+                  />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 900 }} />
+                  <Tooltip
+                    cursor={{ fill: '#f8fafc' }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="bg-gray-900 text-white p-4 rounded-2xl shadow-2xl border border-gray-800 animate-in zoom-in-95 duration-200">
+                            <p className="text-[10px] font-black uppercase tracking-widest mb-1">{payload[0].payload.name}</p>
+                            <p className="text-lg font-black">{payload[0].value} Chats</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#3b82f6" radius={[8, 8, 0, 0]} barSize={40}>
+                    {stats.agentStats.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={index === 0 ? '#3b82f6' : index === 1 ? '#6366f1' : '#94a3b8'} fillOpacity={0.8} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Activity Distribution / Peak Hours */}
+          <div className="lg:col-span-4 bg-white p-8 rounded-[3rem] border border-gray-100 shadow-sm flex flex-col min-h-[450px]">
+            <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter mb-1">Picos de Atividade</h3>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-8">Horários com maior fluxo de mensagens</p>
+
+            <div className="flex-1 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={stats.peakHours}>
+                  <defs>
+                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="bg-white p-3 rounded-xl shadow-lg border border-gray-100">
+                            <p className="text-[10px] font-black text-gray-400 uppercase">{payload[0].payload.hour}</p>
+                            <p className="text-sm font-black text-blue-600">{payload[0].value} Eventos</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Area type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-gray-50 grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Média Chat / Dia</div>
+                <div className="text-lg font-black text-gray-800">{Math.round(stats.chatsTotal / 7) || 0}</div>
+              </div>
+              <div>
+                <div className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Meta Mensal</div>
+                <div className="text-lg font-black text-emerald-500">85%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Unified Project & Tasks Summary Section */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
+          <div className="col-span-1 bg-white p-6 rounded-[2.5rem] border border-gray-100 flex flex-col justify-center">
+            <div className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-1 flex items-center gap-2"><AlertCircle size={14} /> Tarefas Atrasadas</div>
+            <div className="text-3xl font-black text-rose-600">{stats.tasksOverdue}</div>
+          </div>
+          <div className="col-span-1 bg-white p-6 rounded-[2.5rem] border border-gray-100 flex flex-col justify-center">
+            <div className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2"><ClipboardList size={14} /> Tarefas Ativas</div>
+            <div className="text-3xl font-black text-blue-600">{stats.totalTasks}</div>
+          </div>
+          <div className="col-span-1 bg-white p-6 rounded-[2.5rem] border border-gray-100 flex flex-col justify-center">
+            <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1 flex items-center gap-2"><Users size={14} /> Atribuídas</div>
+            <div className="text-3xl font-black text-amber-600">{stats.tasksAssigned}</div>
+          </div>
+          <div className="col-span-1 bg-white p-6 rounded-[2.5rem] border border-gray-100 flex flex-col justify-center">
+            <div className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1 flex items-center gap-2"><CheckCircle2 size={14} /> Concluídas</div>
+            <div className="text-3xl font-black text-emerald-600">{stats.tasksCompleted}</div>
+          </div>
+          <div className="col-span-1 bg-white p-6 rounded-[2.5rem] border border-gray-100 flex flex-col justify-center">
+            <div className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1 flex items-center gap-2"><LayoutGrid size={14} /> Projetos</div>
+            <div className="text-3xl font-black text-indigo-600">{stats.totalProjects}</div>
+          </div>
         </div>
 
         {/* Main Content Section */}
         <div className="bg-white rounded-[3rem] p-10 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-10">
             <div>
-              <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">Novidades</h2>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Agora você pode organizar o seu dia com a nossa ferramenta de produtividade</p>
+              <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tighter">Projetos & Atividades</h2>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Gerencie seu fluxo de trabalho e projetos estratégicos</p>
             </div>
             <div className="flex items-center gap-4">
               <button

@@ -159,6 +159,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
     useEffect(() => {
+        if (!chatId || isTask) return;
+        const chatRef = doc(db, "chats", chatId);
+        const unsub = onSnapshot(chatRef, (snapshot) => {
+            if (snapshot.exists()) {
+                const data = snapshot.data();
+                setContactInfo(data);
+                if (data.agent) setAgentName(data.agent);
+                else setAgentName('Sem Responsável');
+            }
+        });
+        return () => unsub();
+    }, [chatId, isTask]);
+
+    useEffect(() => {
         if (!chatId) return;
 
         const clearUnread = async () => {
