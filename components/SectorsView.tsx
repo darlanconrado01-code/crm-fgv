@@ -13,7 +13,7 @@ import {
     Search
 } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, getDocs, updateDoc } from 'firebase/firestore';
 
 interface Sector {
     id: string;
@@ -26,9 +26,13 @@ interface Sector {
 
 const SectorsView: React.FC = () => {
     const [sectors, setSectors] = useState<Sector[]>([]);
+    const [allUsers, setAllUsers] = useState<any[]>([]);
+    const [allBots, setAllBots] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSector, setEditingSector] = useState<Partial<Sector> | null>(null);
+    const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+    const [selectedBots, setSelectedBots] = useState<string[]>([]);
 
     const colors = [
         { name: 'Indigo', bg: 'bg-indigo-500', text: 'text-indigo-600', light: 'bg-indigo-50' },
@@ -47,8 +51,31 @@ const SectorsView: React.FC = () => {
             setSectors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Sector)));
             setLoading(false);
         });
-        return () => unsub();
+
+        const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+            setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+
+        const unsubBots = onSnapshot(collection(db, "ai_agents"), (snapshot) => {
+            setAllBots(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+
+        return () => {
+            unsub();
+            unsubUsers();
+            unsubBots();
+        };
     }, []);
+
+    useEffect(() => {
+        if (editingSector?.name) {
+            setSelectedUsers(allUsers.filter(u => u.sector === editingSector.name).map(u => u.id));
+            setSelectedBots(allBots.filter(b => b.sector === editingSector.name).map(b => b.id));
+        } else {
+            setSelectedUsers([]);
+            setSelectedBots([]);
+        }
+    }, [isModalOpen, editingSector, allUsers, allBots]);
 
     const handleSaveSector = async () => {
         if (!editingSector?.name) return alert("Dê um nome ao setor!");
@@ -64,6 +91,27 @@ const SectorsView: React.FC = () => {
 
         try {
             await setDoc(doc(db, "sectors", id), sectorData);
+
+            // Atualizar Setor dos Usuários
+            for (const user of allUsers) {
+                const isSelected = selectedUsers.includes(user.id);
+                if (isSelected && user.sector !== editingSector.name) {
+                    await updateDoc(doc(db, "users", user.id), { sector: editingSector.name });
+                } else if (!isSelected && user.sector === editingSector.name) {
+                    await updateDoc(doc(db, "users", user.id), { sector: "" });
+                }
+            }
+
+            // Atualizar Setor dos Robôs
+            for (const bot of allBots) {
+                const isSelected = selectedBots.includes(bot.id);
+                if (isSelected && bot.sector !== editingSector.name) {
+                    await updateDoc(doc(db, "ai_agents", bot.id), { sector: editingSector.name });
+                } else if (!isSelected && bot.sector === editingSector.name) {
+                    await updateDoc(doc(db, "ai_agents", bot.id), { sector: "" });
+                }
+            }
+
             setIsModalOpen(false);
             setEditingSector(null);
         } catch (e) {
@@ -140,11 +188,15 @@ const SectorsView: React.FC = () => {
                                         <div className="flex gap-4">
                                             <div className="flex items-center gap-1.5 text-gray-400" title="Usuários">
                                                 <Users size={14} />
-                                                <span className="text-[10px] font-black tracking-widest">--</span>
+                                                <span className="text-[10px] font-black tracking-widest">
+                                                    {allUsers.filter(u => u.sector === s.name).length}
+                                                </span>
                                             </div>
                                             <div className="flex items-center gap-1.5 text-gray-400" title="Robôs">
                                                 <Bot size={14} />
-                                                <span className="text-[10px] font-black tracking-widest">--</span>
+                                                <span className="text-[10px] font-black tracking-widest">
+                                                    {allBots.filter(b => b.sector === s.name).length}
+                                                </span>
                                             </div>
                                         </div>
                                         <div className="flex gap-1">
@@ -244,6 +296,83 @@ const SectorsView: React.FC = () => {
                                     />
                                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                                 </label>
+                            </div>
+
+                            <div className="space-y-4">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Gerenciar Equipe</label>
+                                <div className="space-y-3">
+                                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                                        <h5 className="text-[10px] font-black uppercase text-indigo-600 mb-4 flex items-center gap-2">
+                                            <Users size={14} /> Usuários (Humanos)
+                                        </h5>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            {allUsers.length === 0 ? (
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase italic text-center py-2">Nenhum usuário cadastrado</p>
+                                            ) : (
+                                                allUsers.map(user => (
+                                                    <label key={user.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-50 hover:bg-indigo-50/50 transition-all cursor-pointer group">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-black text-gray-400 group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-colors">
+                                                                {user.name.charAt(0)}
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-bold text-gray-700">{user.name}</p>
+                                                                <p className="text-[9px] text-gray-400 font-medium">
+                                                                    {user.sector && user.sector !== editingSector?.name ? `Atualmente: ${user.sector}` : 'Sem setor'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-5 h-5 rounded-lg border-gray-200 text-indigo-600 focus:ring-indigo-500"
+                                                            checked={selectedUsers.includes(user.id)}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) setSelectedUsers([...selectedUsers, user.id]);
+                                                                else setSelectedUsers(selectedUsers.filter(id => id !== user.id));
+                                                            }}
+                                                        />
+                                                    </label>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                                        <h5 className="text-[10px] font-black uppercase text-emerald-600 mb-4 flex items-center gap-2">
+                                            <Bot size={14} /> Robôs (IA Agents)
+                                        </h5>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            {allBots.length === 0 ? (
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase italic text-center py-2">Nenhum robô cadastrado</p>
+                                            ) : (
+                                                allBots.map(bot => (
+                                                    <label key={bot.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-50 hover:bg-emerald-50/50 transition-all cursor-pointer group">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-[10px] font-black">
+                                                                <Bot size={14} />
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs font-bold text-gray-700">{bot.name}</p>
+                                                                <p className="text-[9px] text-gray-400 font-medium">
+                                                                    {bot.sector && bot.sector !== editingSector?.name ? `Atualmente: ${bot.sector}` : 'Sem setor'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-5 h-5 rounded-lg border-gray-200 text-emerald-600 focus:ring-emerald-500"
+                                                            checked={selectedBots.includes(bot.id)}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) setSelectedBots([...selectedBots, bot.id]);
+                                                                else setSelectedBots(selectedBots.filter(id => id !== bot.id));
+                                                            }}
+                                                        />
+                                                    </label>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

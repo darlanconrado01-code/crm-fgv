@@ -12,7 +12,12 @@ import {
     X,
     Database,
     AlertCircle,
-    ListFilter
+    ListFilter,
+    User2,
+    Building,
+    MessageSquare,
+    Globe,
+    Users
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
@@ -22,6 +27,8 @@ export type CustomFieldType = 'string' | 'boolean' | 'text' | 'number' | 'select
 export interface CustomField {
     id: string;
     label: string;
+    scope: 'contact' | 'company';
+    chatType: 'private' | 'group' | 'both';
     type: CustomFieldType;
     placeholder?: string;
     required: boolean;
@@ -54,6 +61,8 @@ const CustomFieldsView: React.FC = () => {
         const fieldData = {
             ...editingField,
             id,
+            scope: editingField.scope || 'contact',
+            chatType: editingField.chatType || 'both',
             active: editingField.active ?? true,
             required: editingField.required ?? false,
             updatedAt: serverTimestamp(),
@@ -115,7 +124,7 @@ const CustomFieldsView: React.FC = () => {
                     </div>
                     <button
                         onClick={() => {
-                            setEditingField({ type: 'string', active: true, required: false });
+                            setEditingField({ type: 'string', scope: 'contact', chatType: 'both', active: true, required: false });
                             setIsModalOpen(true);
                         }}
                         className="bg-black text-white px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-gray-900 transition-all shadow-lg active:scale-95"
@@ -140,7 +149,7 @@ const CustomFieldsView: React.FC = () => {
                         <p className="text-sm text-gray-400 mb-8">Crie campos para armazenar informações específicas como CPF, Endereço, Data de Nascimento, etc.</p>
                         <button
                             onClick={() => {
-                                setEditingField({ type: 'string', active: true, required: false });
+                                setEditingField({ type: 'string', scope: 'contact', chatType: 'both', active: true, required: false });
                                 setIsModalOpen(true);
                             }}
                             className="text-indigo-600 font-bold text-sm uppercase tracking-widest hover:underline"
@@ -149,56 +158,89 @@ const CustomFieldsView: React.FC = () => {
                         </button>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {fields.map(field => (
-                            <div key={field.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-md transition-all group overflow-hidden relative">
-                                {!field.active && (
-                                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 flex items-center justify-center">
-                                        <span className="bg-gray-800 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">DESATIVADO</span>
-                                    </div>
-                                )}
-                                <div className="flex items-start justify-between mb-4">
-                                    <div className="w-12 h-12 rounded-xl bg-gray-50 flex items-center justify-center border border-gray-100">
-                                        {getTypeIcon(field.type)}
-                                    </div>
-                                    <div className="flex flex-col items-end gap-1">
-                                        <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-tighter ${field.type === 'string' ? 'bg-blue-50 text-blue-600' :
-                                            field.type === 'number' ? 'bg-orange-50 text-orange-600' :
-                                                field.type === 'boolean' ? 'bg-emerald-50 text-emerald-600' :
-                                                    field.type === 'select' ? 'bg-amber-50 text-amber-600' :
-                                                        'bg-purple-50 text-purple-600'
-                                            }`}>
-                                            {getTypeName(field.type)}
-                                        </span>
-                                        {field.required && (
-                                            <span className="text-[9px] font-black text-red-500 uppercase tracking-tighter">Obrigatório</span>
-                                        )}
-                                    </div>
-                                </div>
-                                <h3 className="font-bold text-gray-800 text-lg mb-1">{field.label}</h3>
-                                <p className="text-xs text-gray-400 font-medium truncate mb-4">
-                                    {field.placeholder || 'Sem marcador (placeholder)'}
-                                </p>
+                    <div className="space-y-12">
+                        {['contact', 'company'].map(scope => {
+                            const filteredFields = fields.filter(f => (f.scope || 'contact') === scope);
+                            if (filteredFields.length === 0 && scope === 'company') return null;
 
-                                <div className="flex items-center justify-between pt-4 border-t border-gray-50">
-                                    <span className="text-[9px] font-black text-gray-300 uppercase font-mono">{field.id}</span>
-                                    <div className="flex gap-1">
-                                        <button
-                                            onClick={() => { setEditingField(field); setIsModalOpen(true); }}
-                                            className="p-2 bg-gray-50 text-indigo-600 rounded-xl hover:bg-indigo-500 hover:text-white transition-all shadow-sm"
-                                        >
-                                            <Settings size={16} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteField(field.id)}
-                                            className="p-2 bg-gray-50 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
+                            return (
+                                <div key={scope} className="space-y-6">
+                                    <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
+                                        <div className={`p-2 rounded-xl ${scope === 'contact' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                            {scope === 'contact' ? <User2 size={20} /> : <Building size={20} />}
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-black text-gray-800 uppercase tracking-tighter">
+                                                {scope === 'contact' ? 'Dados do Usuário / Contato' : 'Dados da Empresa'}
+                                            </h2>
+                                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                                {scope === 'contact' ? 'Campos únicos vinculados ao indivíduo' : 'Informações contextuais corporativas'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {filteredFields.map(field => (
+                                            <div key={field.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-md transition-all group overflow-hidden relative">
+                                                {!field.active && (
+                                                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-10 flex items-center justify-center">
+                                                        <span className="bg-gray-800 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">DESATIVADO</span>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-start justify-between mb-4">
+                                                    <div className="w-12 h-12 rounded-xl bg-gray-50 flex items-center justify-center border border-gray-100">
+                                                        {getTypeIcon(field.type)}
+                                                    </div>
+                                                    <div className="flex flex-col items-end gap-1">
+                                                        <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-tighter ${field.type === 'string' ? 'bg-blue-50 text-blue-600' :
+                                                            field.type === 'number' ? 'bg-orange-50 text-orange-600' :
+                                                                field.type === 'boolean' ? 'bg-emerald-50 text-emerald-600' :
+                                                                    field.type === 'select' ? 'bg-amber-50 text-amber-600' :
+                                                                        'bg-purple-50 text-purple-600'
+                                                            }`}>
+                                                            {getTypeName(field.type)}
+                                                        </span>
+                                                        <div className="flex items-center gap-1 mt-1">
+                                                            {field.chatType === 'private' && <MessageSquare size={10} className="text-gray-400" title="Apenas Privado" />}
+                                                            {field.chatType === 'group' && <Users size={10} className="text-gray-400" title="Apenas Grupos" />}
+                                                            {(field.chatType === 'both' || !field.chatType) && <Globe size={10} className="text-gray-400" title="Ambos (Privado e Grupo)" />}
+                                                            <span className="text-[8px] font-bold text-gray-400 uppercase">
+                                                                {field.chatType === 'private' ? 'Privado' : field.chatType === 'group' ? 'Grupos' : 'Ambos'}
+                                                            </span>
+                                                        </div>
+                                                        {field.required && (
+                                                            <span className="text-[9px] font-black text-red-500 uppercase tracking-tighter">Obrigatório</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <h3 className="font-bold text-gray-800 text-lg mb-1">{field.label}</h3>
+                                                <p className="text-xs text-gray-400 font-medium truncate mb-4">
+                                                    {field.placeholder || 'Sem marcador (placeholder)'}
+                                                </p>
+
+                                                <div className="flex items-center justify-between pt-4 border-t border-gray-50">
+                                                    <span className="text-[9px] font-black text-gray-300 uppercase font-mono">{field.id}</span>
+                                                    <div className="flex gap-1">
+                                                        <button
+                                                            onClick={() => { setEditingField(field); setIsModalOpen(true); }}
+                                                            className="p-2 bg-gray-50 text-indigo-600 rounded-xl hover:bg-indigo-500 hover:text-white transition-all shadow-sm"
+                                                        >
+                                                            <Settings size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteField(field.id)}
+                                                            className="p-2 bg-gray-50 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -227,7 +269,60 @@ const CustomFieldsView: React.FC = () => {
                             </button>
                         </header>
 
-                        <div className="flex-1 overflow-y-auto p-10 space-y-8">
+                        <div className="flex-1 overflow-y-auto p-10 space-y-8 custom-scrollbar">
+                            {/* Escopo do Campo */}
+                            <div className="grid grid-cols-2 gap-8">
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Escopo</label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setEditingField({ ...editingField, scope: 'contact' })}
+                                            className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${editingField?.scope === 'contact' || !editingField?.scope ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-transparent text-gray-400'}`}
+                                        >
+                                            <User2 size={20} />
+                                            <span className="text-[9px] font-black uppercase">Usuário</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setEditingField({ ...editingField, scope: 'company' })}
+                                            className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${editingField?.scope === 'company' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-transparent text-gray-400'}`}
+                                        >
+                                            <Building size={20} />
+                                            <span className="text-[9px] font-black uppercase">Empresa</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Aplicar em</label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setEditingField({ ...editingField, chatType: 'private' })}
+                                            className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${editingField?.chatType === 'private' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-gray-50 border-transparent text-gray-400'}`}
+                                            title="Conversas Privadas"
+                                        >
+                                            <MessageSquare size={20} />
+                                            <span className="text-[9px] font-black uppercase">Privado</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setEditingField({ ...editingField, chatType: 'group' })}
+                                            className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${editingField?.chatType === 'group' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-gray-50 border-transparent text-gray-400'}`}
+                                            title="Apenas Grupos"
+                                        >
+                                            <Users size={20} />
+                                            <span className="text-[9px] font-black uppercase">Grupos</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setEditingField({ ...editingField, chatType: 'both' })}
+                                            className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all ${editingField?.chatType === 'both' || !editingField?.chatType ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-gray-50 border-transparent text-gray-400'}`}
+                                            title="Ambos"
+                                        >
+                                            <Globe size={20} />
+                                            <span className="text-[9px] font-black uppercase">Ambos</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Nome */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Nome do Campo</label>
@@ -365,6 +460,19 @@ const CustomFieldsView: React.FC = () => {
                         </div>
 
                         <footer className="px-8 py-6 border-t border-gray-100 bg-[#f8fafc] flex gap-4 shrink-0">
+                            {editingField?.id && (
+                                <button
+                                    onClick={() => {
+                                        handleDeleteField(editingField.id!);
+                                        setIsModalOpen(false);
+                                        setEditingField(null);
+                                    }}
+                                    className="p-4 bg-red-50 text-red-500 rounded-2xl hover:bg-red-500 hover:text-white transition-all active:scale-95 shadow-sm border border-red-100 group"
+                                    title="Excluir Campo"
+                                >
+                                    <Trash2 size={24} className="group-hover:scale-110 transition-transform" />
+                                </button>
+                            )}
                             <button
                                 onClick={() => { setIsModalOpen(false); setEditingField(null); }}
                                 className="flex-1 bg-white border border-gray-200 text-gray-600 font-bold py-4 rounded-2xl hover:bg-gray-50 transition-all active:scale-95"

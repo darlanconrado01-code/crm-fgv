@@ -15,40 +15,54 @@ import {
     Save,
     X,
     MessageSquare,
-    Activity
+    Activity,
+    BookOpen,
+    Database,
+    ClipboardList,
+    FileText,
+    Clock
 } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { useNotification } from './Notification';
+import { collection, query, orderBy, onSnapshot, doc, setDoc, deleteDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 
 interface HumanUser {
     id: string;
     name: string;
     email: string;
     role: string;
-    status: 'active' | 'inactive';
+    sector?: string;
+    status: 'active' | 'inactive' | 'pending';
+    approved?: boolean;
     lastSeen?: any;
+    photoURL?: string;
+    workSchedule?: {
+        start: string;
+        end: string;
+        days: string[];
+    };
 }
 
 interface AIRobot {
     id: string;
     name: string;
-    status: 'active' | 'inactive';
     type: 'ia';
     prompt: string;
-    intent: string;
-    knowledgeBase: string;
+    function: string;      // Sua função
+    persona: string;       // Sua persona
     sector: string;
-    model: string;
-    isFirstContact: boolean;
+    flowStrategy: 'initial' | 'standard'; // Fluxo Inicial (Novo) ou Fluxo Padrão (Base)
     missions?: string[]; // IDs dos campos personalizados que o robô deve preencher
     updatedAt: any;
+    avatarUrl?: string;
 }
 
-const UsersView: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'HUMANOS' | 'IA'>('HUMANOS');
+const UsersView: React.FC<{ initialTab?: 'HUMANOS' | 'PERSONAS' }> = ({ initialTab = 'HUMANOS' }) => {
+    const [activeTab, setActiveTab] = useState<'HUMANOS' | 'PERSONAS'>(initialTab);
     const [humans, setHumans] = useState<HumanUser[]>([]);
     const [robots, setRobots] = useState<AIRobot[]>([]);
     const [loading, setLoading] = useState(true);
+    const { notify, confirm } = useNotification();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingRobot, setEditingRobot] = useState<Partial<AIRobot> | null>(null);
@@ -89,21 +103,22 @@ const UsersView: React.FC = () => {
     }, []);
 
     const handleSaveRobot = async () => {
-        if (!editingRobot?.name) return alert("Dê um nome ao seu robô!");
+        if (!editingRobot?.name) {
+            notify("Dê um nome ao seu robô!", "warning");
+            return;
+        }
 
         const id = editingRobot.id || `bot_${Date.now()}`;
         const robotData = {
             ...editingRobot,
             id,
             type: 'ia',
-            status: editingRobot.status || 'active',
             updatedAt: serverTimestamp(),
             prompt: editingRobot.prompt || '',
-            intent: editingRobot.intent || '',
-            knowledgeBase: editingRobot.knowledgeBase || '',
-            model: editingRobot.model || 'gemini-1.5-flash',
+            function: editingRobot.function || '',
+            persona: editingRobot.persona || '',
             sector: editingRobot.sector || 'Geral',
-            isFirstContact: editingRobot.isFirstContact || false,
+            flowStrategy: editingRobot.flowStrategy || 'initial',
             missions: editingRobot.missions || []
         };
 
@@ -111,22 +126,35 @@ const UsersView: React.FC = () => {
             await setDoc(doc(db, "ai_agents", id), robotData);
             setIsModalOpen(false);
             setEditingRobot(null);
+            notify("Persona registrada com sucesso!", "success");
         } catch (e) {
-            alert("Erro ao salvar robô");
+            notify("Erro ao salvar registro.", "error");
         }
     };
 
+
+
     const handleDeleteRobot = async (id: string) => {
-        if (!confirm("Excluir este robô permanentemente?")) return;
-        try {
-            await deleteDoc(doc(db, "ai_agents", id));
-        } catch (e) {
-            alert("Erro ao excluir");
+        if (await confirm({
+            title: 'Excluir Registro',
+            message: 'Tem certeza que deseja apagar esta definição de persona? Esta ação é irreversível.',
+            type: 'danger',
+            confirmText: 'Apagar'
+        })) {
+            try {
+                await deleteDoc(doc(db, "ai_agents", id));
+                notify("Registro removido.", "success");
+            } catch (e) {
+                notify("Erro ao excluir.", "error");
+            }
         }
     };
 
     const handleSaveUser = async () => {
-        if (!editingUser?.name || !editingUser?.email) return alert("Preencha o nome e email!");
+        if (!editingUser?.name || !editingUser?.email) {
+            notify("Preencha o nome e email!", "warning");
+            return;
+        }
 
         const id = editingUser.id || `user_${Date.now()}`;
         const userData = {
@@ -134,24 +162,54 @@ const UsersView: React.FC = () => {
             id,
             status: editingUser.status || 'active',
             role: editingUser.role || 'Agente',
-            lastSeen: editingUser.lastSeen || serverTimestamp()
+            sector: editingUser.sector || '',
+            lastSeen: editingUser.lastSeen || serverTimestamp(),
+            workSchedule: editingUser.workSchedule || { start: '08:00', end: '18:00', days: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'] }
         };
 
         try {
             await setDoc(doc(db, "users", id), userData);
             setIsUserModalOpen(false);
             setEditingUser(null);
+            notify("Usuário salvo com sucesso!", "success");
         } catch (e) {
-            alert("Erro ao salvar usuário");
+            notify("Erro ao salvar usuário.", "error");
         }
     };
 
     const handleDeleteUser = async (id: string) => {
-        if (!confirm("Remover este usuário do sistema?")) return;
-        try {
-            await deleteDoc(doc(db, "users", id));
-        } catch (e) {
-            alert("Erro ao excluir");
+        if (await confirm({
+            title: 'Remover Usuário',
+            message: 'Tem certeza que deseja remover este usuário do sistema? Ele perderá acesso ao painel.',
+            type: 'danger',
+            confirmText: 'Remover'
+        })) {
+            try {
+                await deleteDoc(doc(db, "users", id));
+                notify("Usuário removido com sucesso.", "success");
+            } catch (e) {
+                notify("Erro ao excluir.", "error");
+            }
+        }
+    };
+
+    const handleApproveUser = async (id: string, name: string) => {
+        if (await confirm({
+            title: 'Aprovar Acesso',
+            message: `Deseja liberar o acesso ao sistema para ${name}?`,
+            type: 'info',
+            confirmText: 'Aprovar'
+        })) {
+            try {
+                await updateDoc(doc(db, "users", id), {
+                    status: 'active',
+                    approved: true
+                });
+                notify("Acesso liberado com sucesso!", "success");
+            } catch (e) {
+                console.error(e);
+                notify("Erro ao aprovar usuário.", "error");
+            }
         }
     };
 
@@ -165,13 +223,17 @@ const UsersView: React.FC = () => {
                             <Users size={24} />
                         </div>
                         <div>
-                            <h1 className="text-xl font-black text-gray-800 uppercase tracking-tight">Gestão de Usuários</h1>
-                            <p className="text-xs text-gray-500 font-medium">Gerencie sua equipe humana e seus agentes de IA.</p>
+                            <h1 className="text-xl font-black text-gray-800 uppercase tracking-tight">
+                                {activeTab === 'HUMANOS' ? 'Gestão de Usuários' : 'Gestão de Robôs (IA)'}
+                            </h1>
+                            <p className="text-xs text-gray-500 font-medium">
+                                {activeTab === 'HUMANOS' ? 'Gerencie sua equipe humana.' : 'Crie e configure seus agentes de inteligência artificial.'}
+                            </p>
                         </div>
                     </div>
                     <button
                         onClick={() => {
-                            if (activeTab === 'IA') {
+                            if (activeTab === 'PERSONAS') {
                                 setEditingRobot({});
                                 setIsModalOpen(true);
                             } else {
@@ -181,23 +243,29 @@ const UsersView: React.FC = () => {
                         }}
                         className="bg-black text-white px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-gray-900 transition-all shadow-lg active:scale-95"
                     >
-                        <Plus size={18} /> {activeTab === 'IA' ? 'Novo Robô (IA)' : 'Convidar Humano'}
+                        <Plus size={18} /> {activeTab === 'PERSONAS' ? 'Nova Persona' : 'Convidar Humano'}
                     </button>
                 </div>
 
-                {/* Tabs */}
+                {/* Tabs - Only show if we want to toggle, but for now we are splitting views. 
+                    However, the user asked to SPLIT the menu items. 
+                    If we want to strictly enforce it, we can hide tabs if a specific one is passed, OR just set default.
+                    Let's just keep the tabs for flexibility but default to the correct one, 
+                    OR hide them if we want a stricter separation. 
+                    Given "Não vamos mais misturar", let's Hide the tabs if we are in a specific view mode.
+                */}
                 <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl w-fit">
                     <button
                         onClick={() => setActiveTab('HUMANOS')}
-                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'HUMANOS' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'HUMANOS' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'} ${initialTab === 'PERSONAS' ? 'hidden' : ''}`}
                     >
                         👨‍💼 Humanos ({humans.length})
                     </button>
                     <button
-                        onClick={() => setActiveTab('IA')}
-                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'IA' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                        onClick={() => setActiveTab('PERSONAS')}
+                        className={`px-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'PERSONAS' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'} ${initialTab === 'HUMANOS' ? 'hidden' : ''}`}
                     >
-                        🤖 Robôs IA ({robots.length})
+                        📋 Personas Agentes ({robots.length})
                     </button>
                 </div>
             </div>
@@ -213,11 +281,15 @@ const UsersView: React.FC = () => {
                         ) : humans.map(h => (
                             <div key={h.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-md transition-all group">
                                 <div className="flex items-start justify-between mb-4">
-                                    <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-500 font-bold text-xl border border-blue-100">
-                                        {h.name.charAt(0)}
+                                    <div className="w-14 h-14 rounded-2xl bg-blue-50 overflow-hidden flex items-center justify-center text-blue-500 font-bold text-xl border border-blue-100 relative">
+                                        {h.photoURL ? (
+                                            <img src={h.photoURL} alt={h.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                            h.name.charAt(0)
+                                        )}
                                     </div>
-                                    <span className={`px-3 py-1 ${h.status === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'} text-[10px] font-black rounded-full uppercase tracking-tighter`}>
-                                        {h.status === 'active' ? 'ONLINE' : 'OFFLINE'}
+                                    <span className={`px-3 py-1 ${h.status === 'active' ? 'bg-emerald-50 text-emerald-600' : h.status === 'pending' ? 'bg-yellow-50 text-yellow-600' : 'bg-gray-100 text-gray-400'} text-[10px] font-black rounded-full uppercase tracking-tighter`}>
+                                        {h.status === 'active' ? 'ONLINE' : h.status === 'pending' ? 'PENDENTE' : 'OFFLINE'}
                                     </span>
                                 </div>
                                 <h3 className="font-bold text-gray-800 mb-1">{h.name}</h3>
@@ -228,6 +300,15 @@ const UsersView: React.FC = () => {
                                         <span className="text-[9px] font-bold text-blue-500 uppercase">{h.role === 'Administrador' ? 'Geral' : (sectors.find(s => s.id === h.role)?.name || h.role || 'Sem Setor')}</span>
                                     </div>
                                     <div className="flex gap-2">
+                                        {h.status === 'pending' && (
+                                            <button
+                                                onClick={() => handleApproveUser(h.id, h.name)}
+                                                className="p-2 bg-yellow-50 text-yellow-600 rounded-lg hover:bg-yellow-500 hover:text-white transition-colors"
+                                                title="Aprovar Acesso"
+                                            >
+                                                <UserCheck size={16} />
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => { setEditingUser(h); setIsUserModalOpen(true); }}
                                             className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
@@ -253,30 +334,25 @@ const UsersView: React.FC = () => {
                             </div>
                         ) : robots.map(r => (
                             <div key={r.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-                                <div className={`absolute top-0 right-0 w-2 h-full ${r.status === 'active' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                                <div className={`absolute top-0 right-0 py-1 px-4 ${r.flowStrategy === 'standard' ? 'bg-emerald-600' : 'bg-orange-500'} text-white text-[9px] font-black uppercase tracking-widest rounded-bl-xl shadow-lg flex items-center gap-1 z-10`}>
+                                    {r.flowStrategy === 'standard' ? <ClipboardList size={10} /> : <Zap size={10} fill="white" />}
+                                    {r.flowStrategy === 'standard' ? 'Fluxo Padrão (Base)' : 'Fluxo Inicial (Novo)'}
+                                </div>
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 relative">
-                                        <Bot size={28} />
-                                        {r.isFirstContact && (
-                                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center border-2 border-white" title="Primeiro Contato">
-                                                <Zap size={10} fill="white" />
-                                            </div>
-                                        )}
+                                        <FileText size={28} />
                                     </div>
-                                    <div className="flex flex-col items-end gap-1">
-                                        <span className={`px-3 py-1 text-[10px] font-black rounded-full uppercase tracking-tighter ${r.status === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
-                                            {r.status === 'active' ? 'TREINADO' : 'DESLIGADO'}
-                                        </span>
-                                        <span className="text-[9px] text-gray-300 font-mono uppercase italic">{r.model}</span>
+                                    <div className="flex flex-col items-end gap-2">
+                                        <span className="text-[9px] text-gray-400 font-bold uppercase trekking-widest bg-gray-50 px-2 py-1 rounded-lg">REG: {r.id.split('_')[1] || r.id}</span>
                                     </div>
                                 </div>
                                 <h3 className="font-bold text-gray-800 mb-1">{r.name}</h3>
-                                <p className="text-xs text-gray-500 mb-2 font-medium">Setor: {r.sector}</p>
+                                <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest mb-2">{r.function || 'Função não definida'}</p>
                                 <div className="p-3 bg-gray-50 rounded-xl mb-4 border border-gray-100">
                                     <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1">
-                                        <Zap size={10} className="text-yellow-500" /> Gatilho
+                                        <UserCheck size={10} className="text-emerald-500" /> Persona
                                     </p>
-                                    <p className="text-[11px] text-gray-600 font-mono truncate">{r.intent || 'Qualquer mensagem'}</p>
+                                    <p className="text-[11px] text-gray-600 font-medium italic line-clamp-2">{r.persona || 'Sem persona definida'}</p>
                                 </div>
 
                                 {r.missions && r.missions.length > 0 && (
@@ -298,11 +374,9 @@ const UsersView: React.FC = () => {
                                 )}
 
                                 <div className="flex items-center justify-between pt-4 border-t border-gray-50">
-                                    <div className="flex gap-4">
-                                        <div className="flex flex-col">
-                                            <span className="text-[9px] font-black text-gray-300 uppercase">Contexto</span>
-                                            <span className="text-xs font-bold text-gray-600">{r.knowledgeBase ? 'Carregado' : 'Vazio'}</span>
-                                        </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[9px] font-black text-gray-300 uppercase">Setor</span>
+                                        <span className="text-xs font-bold text-gray-600 truncate max-w-[120px]">{sectors.find(s => s.id === r.sector)?.name || r.sector || 'Geral'}</span>
                                     </div>
                                     <div className="flex gap-1">
                                         <button
@@ -332,11 +406,11 @@ const UsersView: React.FC = () => {
                         <header className="px-8 py-6 border-b border-gray-100 flex items-center justify-between shrink-0 bg-[#f8fafc]">
                             <div className="flex items-center gap-4">
                                 <div className="p-3 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-100">
-                                    <Bot size={24} />
+                                    <Database size={24} />
                                 </div>
                                 <div>
-                                    <h2 className="text-xl font-black text-gray-800 uppercase tracking-tight">Treinamento do Robô</h2>
-                                    <p className="text-xs text-gray-500 font-medium italic">Ensine como seu agente de IA deve se comportar.</p>
+                                    <h2 className="text-xl font-black text-gray-800 uppercase tracking-tight">Ficha da Persona</h2>
+                                    <p className="text-xs text-gray-500 font-medium italic">Registre as definições estratégicas deste agente.</p>
                                 </div>
                             </div>
                             <button
@@ -353,10 +427,10 @@ const UsersView: React.FC = () => {
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Nome do Agente</label>
                                     <div className="relative">
-                                        <UserCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500" size={18} />
+                                        <ClipboardList className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500" size={18} />
                                         <input
                                             type="text"
-                                            placeholder="Ex: Assistente Comercial"
+                                            placeholder="Ex: Consultor FGV"
                                             className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
                                             value={editingRobot?.name || ''}
                                             onChange={(e) => setEditingRobot({ ...editingRobot, name: e.target.value })}
@@ -364,30 +438,15 @@ const UsersView: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Modelo de IA</label>
-                                    <div className="relative">
-                                        <Shield className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
-                                        <select
-                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 appearance-none transition-all"
-                                            value={editingRobot?.model || 'gemini-1.5-flash'}
-                                            onChange={(e) => setEditingRobot({ ...editingRobot, model: e.target.value })}
-                                        >
-                                            <option value="gemini-1.5-flash">Gemini 1.5 Flash (Rápido)</option>
-                                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Inteligente)</option>
-                                            <option value="gpt-4o">GPT-4o</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Gatilho / Intenção</label>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Sua Função</label>
                                     <div className="relative">
                                         <Zap className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500" size={18} />
                                         <input
                                             type="text"
-                                            placeholder="Ex: precificação, suporte, oi"
-                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono"
-                                            value={editingRobot?.intent || ''}
-                                            onChange={(e) => setEditingRobot({ ...editingRobot, intent: e.target.value })}
+                                            placeholder="Ex: Qualificação de Leads, Suporte..."
+                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                                            value={editingRobot?.function || ''}
+                                            onChange={(e) => setEditingRobot({ ...editingRobot, function: e.target.value })}
                                         />
                                     </div>
                                 </div>
@@ -407,6 +466,20 @@ const UsersView: React.FC = () => {
                                         </select>
                                     </div>
                                 </div>
+                                <div className="space-y-2 col-span-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Sua Persona (Identidade)</label>
+                                    <div className="relative">
+                                        <BookOpen className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
+                                        <input
+                                            type="text"
+                                            placeholder="Ex: Um atendente jovem, prestativo e que gosta de tecnologia"
+                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                                            value={editingRobot?.persona || ''}
+                                            onChange={(e) => setEditingRobot({ ...editingRobot, persona: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
                             </div>
 
                             {/* Missions / Custom Fields */}
@@ -455,9 +528,9 @@ const UsersView: React.FC = () => {
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
-                                        <Bot size={14} /> Persona e Instruções (Prompt)
+                                        <FileText size={14} /> Persona e Instruções (Prompt)
                                     </label>
-                                    <span className="text-[9px] bg-red-50 text-red-500 px-2 py-0.5 rounded font-bold uppercase">Cuidado: Mantenha instruções claras</span>
+                                    <span className="text-[9px] bg-blue-50 text-blue-500 px-2 py-0.5 rounded font-bold uppercase">Definição Mestre</span>
                                 </div>
                                 <textarea
                                     rows={6}
@@ -468,56 +541,49 @@ const UsersView: React.FC = () => {
                                 />
                             </div>
 
-                            {/* Knowledge Base */}
-                            <div className="space-y-3">
+                            {/* Strategy Selection */}
+                            <div className="space-y-4">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
-                                    <Save size={14} /> Base de Conhecimento (Contexto)
+                                    🎯 Estratégia de Ativação (n8n Logic)
                                 </label>
-                                <textarea
-                                    rows={6}
-                                    placeholder="Cole aqui informações sobre preços, horários, catálogo, scripts de venda, etc."
-                                    className="w-full bg-gray-50 border border-gray-100 rounded-3xl px-6 py-5 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium h-[150px] resize-none"
-                                    value={editingRobot?.knowledgeBase || ''}
-                                    onChange={(e) => setEditingRobot({ ...editingRobot, knowledgeBase: e.target.value })}
-                                />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button
+                                        onClick={() => setEditingRobot({ ...editingRobot, flowStrategy: 'initial' })}
+                                        className={`p-6 rounded-[2rem] border-2 transition-all text-left flex flex-col gap-2 ${editingRobot?.flowStrategy !== 'standard'
+                                            ? 'bg-orange-50 border-orange-500 shadow-lg'
+                                            : 'bg-white border-gray-100 grayscale opacity-60 hover:opacity-100'
+                                            }`}
+                                    >
+                                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${editingRobot?.flowStrategy !== 'standard' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                                            <Zap size={18} fill={editingRobot?.flowStrategy !== 'standard' ? "currentColor" : "none"} />
+                                        </div>
+                                        <div>
+                                            <p className="font-black text-xs uppercase tracking-tight">Fluxo Inicial</p>
+                                            <p className="text-[10px] text-gray-500 font-bold leading-tight mt-1">Para clientes inexistentes no CRM (Novos Leads).</p>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setEditingRobot({ ...editingRobot, flowStrategy: 'standard' })}
+                                        className={`p-6 rounded-[2rem] border-2 transition-all text-left flex flex-col gap-2 ${editingRobot?.flowStrategy === 'standard'
+                                            ? 'bg-emerald-50 border-emerald-500 shadow-lg'
+                                            : 'bg-white border-gray-100 grayscale opacity-60 hover:opacity-100'
+                                            }`}
+                                    >
+                                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${editingRobot?.flowStrategy === 'standard' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                                            <ClipboardList size={18} />
+                                        </div>
+                                        <div>
+                                            <p className="font-black text-xs uppercase tracking-tight">Fluxo Padrão</p>
+                                            <p className="text-[10px] text-gray-500 font-bold leading-tight mt-1">Para clientes da base com tickets reabertos.</p>
+                                        </div>
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* Advanced Flags */}
-                            <div className="p-6 bg-blue-50 rounded-[2rem] border border-blue-100 flex items-center justify-between">
-                                <div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600 mb-1">Fluxo Automático</h4>
-                                    <p className="text-[11px] text-blue-800 font-bold">Definir como Robô de Primeiro Contato?</p>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        className="sr-only peer"
-                                        checked={editingRobot?.isFirstContact || false}
-                                        onChange={(e) => setEditingRobot({ ...editingRobot, isFirstContact: e.target.checked })}
-                                    />
-                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                </label>
-                            </div>
 
-                            {/* Advanced Toggle */}
-                            <div className="p-6 bg-[#0f172a] rounded-[2rem] border border-gray-800 shadow-xl">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-2 text-emerald-400">
-                                        <Activity size={18} />
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Estado de Operação</h4>
-                                    </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            className="sr-only peer"
-                                            checked={editingRobot?.status === 'active'}
-                                            onChange={(e) => setEditingRobot({ ...editingRobot, status: e.target.checked ? 'active' : 'inactive' })}
-                                        />
-                                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                                    </label>
-                                </div>
-                                <p className="text-[11px] text-gray-500 italic">Quando ativo, este robô responderá automaticamente de acordo com o gatilho configurado.</p>
-                            </div>
+
+
                         </div>
 
                         <footer className="px-8 py-6 border-t border-gray-100 bg-[#f8fafc] flex gap-4 shrink-0">
@@ -531,7 +597,7 @@ const UsersView: React.FC = () => {
                                 onClick={handleSaveRobot}
                                 className="flex-[2] bg-emerald-500 text-white font-bold py-4 rounded-2xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-100 active:scale-95 flex items-center justify-center gap-2"
                             >
-                                <Save size={18} /> SALVAR E TREINAR AGORA
+                                <Save size={18} /> SALVAR REGISTRO
                             </button>
                         </footer>
                     </div>
@@ -601,14 +667,73 @@ const UsersView: React.FC = () => {
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Setor Principal</label>
                                     <select
                                         className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 appearance-none transition-all cursor-pointer"
-                                        value={editingUser?.role || ''} // Usando role temporariamente para setor se não houver campo específico
-                                        onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                                        value={editingUser?.sector || ''}
+                                        onChange={(e) => setEditingUser({ ...editingUser, sector: e.target.value })}
                                     >
                                         <option value="">Nenhum</option>
                                         {sectors.map(s => (
                                             <option key={s.id} value={s.id}>{s.name}</option>
                                         ))}
                                     </select>
+                                </div>
+                            </div>
+
+                            {/* Working Hours Schedule */}
+                            <div className="space-y-4 pt-4 border-t border-gray-100/50">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
+                                    <Clock size={14} /> Horário de Trabalho
+                                </label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest ml-1">Início</label>
+                                        <input
+                                            type="time"
+                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                            value={editingUser?.workSchedule?.start || '08:00'}
+                                            onChange={(e) => setEditingUser({
+                                                ...editingUser,
+                                                workSchedule: { ...(editingUser?.workSchedule || { end: '18:00', days: [] }), start: e.target.value }
+                                            })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest ml-1">Fim</label>
+                                        <input
+                                            type="time"
+                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                            value={editingUser?.workSchedule?.end || '18:00'}
+                                            onChange={(e) => setEditingUser({
+                                                ...editingUser,
+                                                workSchedule: { ...(editingUser?.workSchedule || { start: '08:00', days: [] }), end: e.target.value }
+                                            })}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest ml-1">Dias da Semana</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'].map(day => (
+                                            <button
+                                                key={day}
+                                                onClick={() => {
+                                                    const currentDays = editingUser?.workSchedule?.days || [];
+                                                    const newDays = currentDays.includes(day)
+                                                        ? currentDays.filter(d => d !== day)
+                                                        : [...currentDays, day];
+                                                    setEditingUser({
+                                                        ...editingUser,
+                                                        workSchedule: { ...(editingUser?.workSchedule || { start: '08:00', end: '18:00' }), days: newDays }
+                                                    });
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide border transition-all ${(editingUser?.workSchedule?.days || []).includes(day)
+                                                    ? 'bg-blue-500 text-white border-blue-500'
+                                                    : 'bg-white border-gray-200 text-gray-400 hover:border-blue-300'
+                                                    }`}
+                                            >
+                                                {day}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         </div>

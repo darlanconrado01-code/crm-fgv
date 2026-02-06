@@ -1,0 +1,83 @@
+{
+    "version": 2,
+    "functions": {
+        "api/*.js": {
+            "memory": 1024,
+            "maxDuration": 60
+        }
+    },
+    "rewrites": [
+        {
+            "source": "/api/contacts/:id?",
+            "destination": "/api/core.js?resource=contacts&id=$id"
+        },
+        {
+            "source": "/api/messages/:chatId?",
+            "destination": "/api/core.js?resource=messages&chatId=$chatId"
+        },
+        {
+            "source": "/api/tickets/:id?",
+            "destination": "/api/core.js?resource=tickets&id=$id"
+        },
+        {
+            "source": "/api/agenda/:id?",
+            "destination": "/api/core.js?resource=agenda&id=$id"
+        },
+        {
+            "source": "/api/ai-agents/:id?",
+            "destination": "/api/core.js?resource=ai-agents&id=$id"
+        },
+        {
+            "source": "/api/send-message/:to?",
+            "destination": "/api/core.js?resource=send-message&to=$to"
+        },
+        {
+            "source": "/api/sync-profile",
+            "destination": "/api/core.js?resource=sync-profile"
+        },
+        {
+            "source": "/api/transcribe",
+            "destination": "/api/transcribe.js"
+        },
+        {
+            "source": "/api/deep-analysis",
+            "destination": "/api/ai.js?action=deep-analysis"
+        },
+        {
+            "source": "/api/evaluate-chat",
+            "destination": "/api/ai.js?action=evaluate-chat"
+        },
+        {
+            "source": "/api/detect-appointment",
+            "destination": "/api/ai.js?action=detect-appointment"
+        },
+        {
+            "source": "/receber-uzapi",
+            "destination": "/api/webhook.js"
+        },
+        {
+            "source": "/api/webhook",
+            "destination": "/api/webhook.js"
+        },
+        {
+            "source": "/api/n8n-action",
+            "destination": "/api/n8n-action.js"
+        },
+        {
+            "source": "/api/upload-r2",
+            "destination": "/api/upload-r2.js"
+        },
+        {
+            "source": "/api/r2-cleanup",
+            "destination": "/api/r2-cleanup.js"
+        },
+        {
+            "source": "/api/(.*)",
+            "destination": "/api/$1.js"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}

@@ -3,510 +3,510 @@ import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, query, where, limit, orderBy } from "firebase/firestore";
+import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, query, orderBy, limit, where } from "firebase/firestore";
+import coreHandler from './api/core.js';
+import aiHandler from './api/ai.js';
+import n8nActionHandler from './api/n8n-action.js';
+import r2CleanupHandler from './api/r2-cleanup.js';
+import uploadR2Handler from './api/upload-r2.js';
+import webhookHandler from './api/webhook.js';
+import jarvisHandler from './api/jarvis.js';
+import fs from 'fs';
 
-// Configuração do Firebase (mesma do seu app)
 const firebaseConfig = {
     apiKey: "AIzaSyC8Bswi9age_G9Lktb82QwA0QtixOdaEsc",
     authDomain: "crm-fgv-3868c.firebaseapp.com",
     projectId: "crm-fgv-3868c",
     storageBucket: "crm-fgv-3868c.firebasestorage.app",
     messagingSenderId: "501480125467",
-    appId: "1:501480125467:web:dd834ac8eb8ad40a4a34be",
-    measurementId: "G-6E0EP3FRKE"
+    appId: "1:501480125467:web:dd834ac8eb8ad40a4a34be"
 };
 
-// Inicializa Firebase no Node
 const appFirebase = initializeApp(firebaseConfig);
 const db = getFirestore(appFirebase);
 
 const app = express();
-const PORT = 3021;
-
 app.use(cors());
-app.use(bodyParser.json());
+app.get('/', (req, res) => res.send('API Backend SDR 🚀 Online'));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
-// Mapeamento de DDD para Estado (UF)
-const dddToState = {
-    '11': 'SP', '12': 'SP', '13': 'SP', '14': 'SP', '15': 'SP', '16': 'SP', '17': 'SP', '18': 'SP', '19': 'SP',
-    '21': 'RJ', '22': 'RJ', '24': 'RJ',
-    '27': 'ES', '28': 'ES',
-    '31': 'MG', '32': 'MG', '33': 'MG', '34': 'MG', '35': 'MG', '37': 'MG', '38': 'MG',
-    '41': 'PR', '42': 'PR', '43': 'PR', '44': 'PR', '45': 'PR', '46': 'PR',
-    '47': 'SC', '48': 'SC', '49': 'SC',
-    '51': 'RS', '53': 'RS', '54': 'RS', '55': 'RS',
-    '61': 'DF', '62': 'GO', '63': 'TO', '64': 'GO', '65': 'MT', '66': 'MT', '67': 'MS', '68': 'AC', '69': 'RO',
-    '71': 'BA', '73': 'BA', '74': 'BA', '75': 'BA', '77': 'BA',
-    '79': 'SE',
-    '81': 'PE', '82': 'AL', '83': 'PB', '84': 'RN', '85': 'CE', '86': 'PI', '87': 'PE', '88': 'CE', '89': 'PI',
-    '91': 'PA', '92': 'AM', '93': 'PA', '94': 'PA', '95': 'RR', '96': 'AP', '97': 'AM', '98': 'MA', '99': 'MA'
-};
+process.on('uncaughtException', (err) => {
+    console.error('CRITICAL: Uncaught Exception:', err);
+});
 
-// Rota para receber Webhook da Evolution API
-app.post('/webhook', async (req, res) => {
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// FUNÇÃO PARA ENVIAR MENSAGEM VIA EVOLUTION OU N8N
+async function sendMessage(chatId, text, settings) {
     try {
-        let payload = req.body;
+        let number = chatId;
+        if (chatId.includes('@s.whatsapp.net')) {
+            number = chatId.split('@')[0];
+        }
 
-        // Suporte a payloads envelopados (n8n ou layouts específicos)
-        if (Array.isArray(payload) && payload.length > 0) payload = payload[0];
-        if (payload.body) payload = payload.body;
+        // DEBUG SETTINGS
+        console.log(`[SEND] Settings found:`, Object.keys(settings));
 
-        const { event, data } = payload;
+        const apiKey = settings.apiKey;
+        const evolutionUrl = settings.url || "https://evolution.canvazap.com.br";
+        const instance = settings.instance;
 
-        console.log('--- EVENTO RECEBIDO ---', event);
+        if (!apiKey || !instance) {
+            console.error(`[SEND] Configurações de API incompletas:`, { apiKey: !!apiKey, instance: !!instance });
+            return false;
+        }
 
-        // 1. Salvar no Firestore na coleção webhook_events para o monitor
-        await addDoc(collection(db, "webhook_events"), {
-            ...payload,
-            timestamp: serverTimestamp(),
-            receivedAt: new Date().toISOString(),
-            raw: req.body
+        const targetUrl = `${evolutionUrl}/message/sendText/${instance}`;
+
+        const payload = {
+            number: number,
+            text: text,
+            linkPreview: true
+        };
+
+        const response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': apiKey
+            },
+            body: JSON.stringify(payload)
         });
 
-        // 2. Processar mensagens (Lógica Unificada e Agressiva)
-        if (event === 'messages.upsert') {
-            console.log('--- DETECÇÃO DE JID REAL ---');
+        if (!response.ok) {
+            console.error(`[SEND] Erro Evolution: ${response.status}`);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.error(`[SEND] Erro crítico:`, e);
+        return false;
+    }
+}
 
-            const key = data.key || {};
-            const remoteJidBase = key.remoteJid || "";
-            const remoteJidAlt = key.remoteJidAlt || data.remoteJidAlt || payload.remoteJidAlt || "";
+// Helper to wrap Vercel-style handlers for Express
+const wrap = (handler, params = {}) => async (req, res) => {
+    // Em Express 5, req.query pode ser apenas um getter. Usamos defineProperty para sobrescrever.
+    const mergedQuery = { ...(req.query || {}), ...(req.params || {}), ...params };
+    Object.defineProperty(req, 'query', {
+        value: mergedQuery,
+        writable: true,
+        configurable: true
+    });
+    try {
+        await handler(req, res);
+    } catch (e) {
+        console.error(`[ROUTE ERROR]`, e);
+        res.status(500).json({ status: 'error', error: e.message });
+    }
+};
 
-            // O ID real do chat deve ser o remoteJidAlt se ele existir e for um número real
-            let finalJid = remoteJidBase;
-            if (remoteJidAlt && remoteJidAlt.includes('@s.whatsapp.net')) {
-                finalJid = remoteJidAlt;
-                console.log('-> JID Real via remoteJidAlt:', finalJid);
-            } else if (remoteJidBase.includes('@lid') && remoteJidAlt) {
-                finalJid = remoteJidAlt;
-                console.log('-> Convertido de LID para Alt:', finalJid);
-            } else {
-                console.log('-> Mantendo JID original (pode ser lid):', finalJid);
-            }
+// API ROUTES (MAPPED FROM /api FOLDER FOR LOCAL DEV)
+app.all('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.all('/api/contacts', wrap(coreHandler, { resource: 'contacts' }));
+app.all('/api/contacts/:id', wrap(coreHandler, { resource: 'contacts' }));
+app.all('/api/messages', wrap(coreHandler, { resource: 'messages' }));
+app.all('/api/messages/:id', wrap(coreHandler, { resource: 'messages' }));
+app.all('/api/tickets', wrap(coreHandler, { resource: 'tickets' }));
+app.all('/api/tickets/:id', wrap(coreHandler, { resource: 'tickets' }));
+app.all('/api/agenda', wrap(coreHandler, { resource: 'agenda' }));
+app.all('/api/agenda/:id', wrap(coreHandler, { resource: 'agenda' }));
+app.all('/api/ai-agents', wrap(coreHandler, { resource: 'ai-agents' }));
+app.all('/api/ai-agents/:id', wrap(coreHandler, { resource: 'ai-agents' }));
+app.all('/api/core', wrap(coreHandler));
 
-            // FUNÇÃO PARA EXTRAIR CONTEÚDO REAL (Lida com rascunhos, efêmeras, viewOnce, etc)
-            const getMsgContent = (m) => {
-                if (!m) return null;
-                if (m.conversation) return { text: m.conversation, type: 'text' };
-                if (m.extendedTextMessage?.text) return { text: m.extendedTextMessage.text, type: 'text' };
+app.post('/api/send-message', wrap(coreHandler, { resource: 'send-message' }));
+app.post('/api/send/:to', wrap(coreHandler, { resource: 'send-message' }));
+app.post('/api/send/:type/:to', wrap(coreHandler, { resource: 'send-message' }));
+app.post('/api/sync-profile', wrap(coreHandler, { resource: 'sync-profile' }));
+app.post('/api/upload-r2', uploadR2Handler);
+app.post('/api/transcribe', wrap(aiHandler, { action: 'transcribe' }));
+app.post('/api/n8n-action', n8nActionHandler);
+app.post('/api/r2-cleanup', r2CleanupHandler);
+app.post('/api/evaluate-chat', wrap(aiHandler, { action: 'evaluate-chat' }));
+app.post('/api/detect-appointment', wrap(aiHandler, { action: 'detect-appointment' }));
+app.post('/api/deep-analysis', wrap(aiHandler, { action: 'deep-analysis' }));
+app.post('/api/jarvis', jarvisHandler);
 
-                if (m.imageMessage) return { ...m.imageMessage, type: 'image', text: m.imageMessage.caption || '📷 Foto' };
-                if (m.videoMessage) return { ...m.videoMessage, type: 'video', text: m.videoMessage.caption || '🎥 Vídeo' };
-                if (m.audioMessage) return { ...m.audioMessage, type: 'audio', text: '🎤 Áudio' };
-                if (m.documentMessage) return { ...m.documentMessage, type: 'document', text: m.documentMessage.title || m.documentMessage.fileName || '📄 Documento' };
-                if (m.stickerMessage) return { ...m.stickerMessage, type: 'sticker', text: 'Sticker' };
+// MAPEAMENTO EXATO DOS CAMPOS DO SEU BANDO DE DADOS
+const FIELD_MAP = {
+    'cpf': 'field_1769078512483',
+    'curso_interesse': 'field_1769078647289',
+    'cidade': 'field_1769080214565',
+    'estado': 'field_1769080430532',
+    'qualificacao': 'field_1769081921057',
+    'origem': 'field_1769081611283'
+};
 
-                // Recursão para wrappers
-                if (m.viewOnceMessageV2?.message) return getMsgContent(m.viewOnceMessageV2.message);
-                if (m.viewOnceMessageV2Extension?.message) return getMsgContent(m.viewOnceMessageV2Extension.message);
-                if (m.ephemeralMessage?.message) return getMsgContent(m.ephemeralMessage.message);
-                if (m.documentWithCaptionMessage?.message) return getMsgContent(m.documentWithCaptionMessage.message);
+app.post('/receber-uzapi', (req, res, next) => {
+    req.url = '/api/webhook';
+    next();
+});
+app.post('/api/webhook', async (req, res) => {
+    try {
+        let bodySize = JSON.stringify(req.body || {}).length;
+        console.log(`[WEBHOOK] Recebida requisição. Tamanho: ${(bodySize / 1024).toFixed(2)} KB`);
 
-                return null;
-            };
+        // Log raw body to a file for deep inspection
+        try {
+            fs.appendFileSync('payloads_debug.log', `\n--- ${new Date().toISOString()} ---\n` + JSON.stringify(req.body, null, 2) + '\n');
+        } catch (e) {
+            console.error('[LOG] Erro ao salvar log de payload:', e);
+        }
 
-            const content = getMsgContent(data.message);
+        let body = req.body;
+        const payloads = Array.isArray(body) ? body : [body];
 
-            let messageText = 'Mídia/Outro';
-            let mediaUrl = '';
-            let mimeType = '';
-            let fileName = '';
-            let msgType = 'text';
+        console.log(`[WEBHOOK] Processando ${payloads.length} payloads.`);
 
-            if (content) {
-                messageText = content.text || '';
-                msgType = content.type || 'text';
-                mediaUrl = content.url || content.mediaUrl || content.base64 || '';
-                mimeType = content.mimetype || '';
-                fileName = content.fileName || content.title || '';
-            }
+        await Promise.all(payloads.map(async (rawPayload) => {
+            try {
+                let payload = rawPayload.data || rawPayload;
 
-            const phone = finalJid.split('@')[0];
-            const pushName = data.pushName || 'Contato';
-            const fromMe = key.fromMe || false;
+                // --- ADAPTER UZAPI ---
+                if (payload.session && payload.sender && (payload.text || payload.type)) {
+                    // (Mantendo a lógica existente de normalização UZAPI para garantir compatibilidade)
+                    if (payload.isGroup) {
+                        payload.remoteJid = payload.chatId;
+                        payload.participant = payload.sender;
+                    } else {
+                        payload.remoteJid = payload.sender; // Em privados UZAPI, sender é o JID
+                    }
 
-            const chatRef = doc(db, "chats", phone);
+                    if (!payload.key) payload.key = {};
+                    payload.key.remoteJid = payload.remoteJid;
+                    payload.key.id = payload.messageId;
 
-            // Incrementar unreadCount
-            const chatDoc = await getDoc(chatRef);
-            const isNewChat = !chatDoc.exists();
-            let currentUnread = 0;
-            let chatStatus = 'bot'; // Padrão
+                    if (payload.myPhone && payload.sender === payload.myPhone) {
+                        payload.fromMe = true;
+                        payload.key.fromMe = true;
+                    }
 
-            if (!isNewChat) {
-                const existingData = chatDoc.data();
-                currentUnread = existingData.unreadCount || 0;
-                chatStatus = existingData.status || 'atendimento';
-                if (chatStatus === 'pending') chatStatus = 'bot'; // Caso tenha vindo de um rastro antigo
-            }
+                    if (!payload.message) {
+                        if (payload.type === 'text') {
+                            payload.message = { text: payload.text };
+                        } else if (['image', 'video', 'audio', 'document'].includes(payload.type)) {
+                            payload.messageType = payload.type;
+                        }
+                    }
 
-            // 1. Criar/Atualizar na coleção 'chats'
-            const phoneStr = String(phone);
-            const ddd = phoneStr.length >= 2 ? phoneStr.substring(2, 4) : ''; // Assume formato 55XX...
-            const detectedState = dddToState[ddd] || '';
-            const stateFieldId = 'field_1769080430532'; // ID do campo ESTADO
+                    if (!payload.pushName) payload.pushName = payload.name || payload.contactNameFromProfile;
+                    if (!payload.avatarUrl && payload.contactProfilePic) {
+                        payload.avatarUrl = payload.contactProfilePic;
+                    }
+                }
+                // --- FIM ADAPTER UZAPI ---
 
-            // Buscar robô de primeiro contato para atribuição IMEDIATA se necessário
-            let initialAgent = chatDoc.exists() ? chatDoc.data().agent : null;
-            let initialAgentId = chatDoc.exists() ? chatDoc.data().agentId : null;
-            let initialSector = chatDoc.exists() ? chatDoc.data().sector : 'Geral';
+                // --- NORMALIZAÇÃO INICIAL DO PAYLOAD ---
+                const payloadData = rawPayload.data?.[0] || rawPayload.data || rawPayload;
 
-            // Verificar se o agente é nulo ou um placeholder
-            const isAgentPlaceholder = !initialAgent ||
-                initialAgent === 'Sem Agente' ||
-                initialAgent === 'Sem Responsável' ||
-                initialAgent === 'Buscando...';
+                // O messageData deve ser o objeto que contém a 'key' e a 'message'
+                // Alguns provedores mandam direto no data, outros dentro de data.message
+                const messageData = payloadData.message ? payloadData : (payloadData.key ? payloadData : (payloadData.data?.message ? payloadData.data : payloadData));
 
-            if (isAgentPlaceholder && chatStatus === 'bot') {
-                console.log('-> Buscando robô responsável...');
-                let botQuery = query(collection(db, "ai_agents"), where("isFirstContact", "==", true), where("status", "==", "active"), limit(1));
-                let botSnap = await getDocs(botQuery);
+                const finalEvent = rawPayload.event || rawPayload.eventType || payloadData.event || payloadData.eventType || 'messages.upsert';
 
-                // Fallback: Se não achar "isFirstContact", pega qualquer robô ativo
-                if (botSnap.empty) {
-                    botQuery = query(collection(db, "ai_agents"), where("status", "==", "active"), limit(1));
-                    botSnap = await getDocs(botQuery);
+                console.log(`[WEBHOOK] Processando Evento: ${finalEvent}`);
+
+                const key = messageData.key || {};
+                let remoteJid = key.remoteJid || payloadData.remoteJid || messageData.remoteJid;
+
+                if (!remoteJid && messageData.extendedTextMessage) {
+                    // Fallback para payloads "Bare" onde remoteJid pode estar fora da key ou em payloadData
+                    remoteJid = payloadData.remoteJid;
                 }
 
-                if (!botSnap.empty) {
-                    const bData = botSnap.docs[0].data();
-                    initialAgent = bData.name;
-                    initialAgentId = botSnap.docs[0].id;
-                    initialSector = bData.sector || 'Geral';
-                    console.log(`-> AGENTE DEFINIDO: ${initialAgent}`);
-                } else {
-                    initialAgent = 'Robô Geral';
+                if (!remoteJid) {
+                    console.log(`[WEBHOOK] Ignorando payload sem remoteJid. Estrutura detectada:`, Object.keys(messageData));
+                    return;
                 }
-            }
 
-            await setDoc(chatRef, {
-                ...payload,
-                ...data,
-                id: phone,
-                phone: phone,
-                remoteJid: remoteJidBase,
-                remoteJidAlt: remoteJidAlt,
-                name: pushName,
-                lastMessage: messageText,
-                updatedAt: serverTimestamp(),
-                unreadCount: fromMe ? 0 : (currentUnread + 1),
-                status: chatStatus,
-                agent: initialAgent,
-                agentId: initialAgentId,
-                sector: initialSector
-            }, { merge: true });
+                const remoteJidBase = remoteJid;
+                console.log(`[WEBHOOK] RemoteJid: ${remoteJidBase}`);
 
-            // 2. Criar/Atualizar na coleção 'contacts' (Base Permanente)
-            const contactRef = doc(db, "contacts", phone);
-            const contactDoc = await getDoc(contactRef);
-            let customData = contactDoc.exists() ? (contactDoc.data().customData || {}) : {};
+                // --- CALL DETECTION ---
+                if (finalEvent === 'call' || finalEvent === 'call.offer' || (payloadData && payloadData.status === 'offer')) {
+                    const callData = payloadData;
+                    const fromNumber = (callData.from || callData.remoteJid || "").split('@')[0];
+                    await addDoc(collection(db, "notifications"), {
+                        userId: "ALL",
+                        title: "Chamada Recebida",
+                        message: `Chamada de ${fromNumber}`,
+                        type: "missed_call",
+                        senderName: "Cliente",
+                        senderPhone: fromNumber,
+                        read: false,
+                        createdAt: serverTimestamp()
+                    });
+                    return;
+                }
 
-            // Auto-preencher estado se estiver vazio
-            if (!customData[stateFieldId] && detectedState) {
-                customData[stateFieldId] = detectedState;
-                console.log(`-> UF identificada pelo DDD: ${detectedState}`);
-            }
-
-            await setDoc(contactRef, {
-                id: phone,
-                phone: phone,
-                name: pushName,
-                remoteJid: remoteJidBase,
-                remoteJidAlt: remoteJidAlt,
-                lastMessage: messageText,
-                lastInteraction: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-                customData
-            }, { merge: true });
-
-            // 3. Salvar Mensagem (SALVAR ANTES DO BOT PARA ORDEM CORRETA)
-            await addDoc(collection(chatRef, "messages"), {
-                ...data,
-                text: messageText,
-                mediaUrl: mediaUrl,
-                mimeType: mimeType,
-                fileName: fileName,
-                messageType: msgType,
-                sender: phone,
-                pushName: pushName,
-                fromMe: fromMe,
-                timestamp: serverTimestamp(),
-                type: msgType
-            });
-
-            // 4. LÓGICA DE BOT (Ativa se o status for 'bot' e não for enviado por mim)
-            if (chatStatus === 'bot' && !fromMe) {
-                try {
-                    console.log('--- ATIVANDO ROBÔ DE PRIMEIRO CONTATO ---');
-                    const botQuery = query(
-                        collection(db, "ai_agents"),
-                        where("isFirstContact", "==", true),
-                        where("status", "==", "active"),
-                        limit(1)
-                    );
-                    const botSnap = await getDocs(botQuery);
-
-                    if (!botSnap.empty) {
-                        const bot = botSnap.docs[0].data();
-
-                        // REFORÇO: Garantir que o robô é o dono do lead (Fallback de segurança)
-                        await setDoc(chatRef, {
-                            agent: bot.name,
-                            agentId: botSnap.docs[0].id,
-                            sector: bot.sector || 'Geral'
+                // --- GROUP UPDATES ---
+                if (finalEvent === 'groups.upsert' || finalEvent === 'group-update' || finalEvent === 'groups.update') {
+                    const groupData = data || payload;
+                    const groupId = (groupData.id || "").split('@')[0];
+                    if (groupId) {
+                        await setDoc(doc(db, "chats", groupId), {
+                            id: groupId,
+                            name: groupData.subject || groupData.name,
+                            avatarUrl: groupData.imgUrl || groupData.avatarUrl || null,
+                            isGroup: true,
+                            updatedAt: serverTimestamp()
                         }, { merge: true });
+                    }
+                    return;
+                }
 
+                if (finalEvent !== 'messages.upsert' && finalEvent !== 'messages.update') return;
 
-                        const settingsSnap = await getDoc(doc(db, "settings", "evolution"));
-                        const settings = settingsSnap.exists() ? settingsSnap.data() : {};
-                        const openaiKey = settings.openaiApiKey;
-                        const instanceName = settings.instance;
+                const isFromMe = key.fromMe || payload.fromMe || false;
+                const remoteJidAlt = messageData.remoteJidAlt || key.remoteJidAlt || payload.remoteJidAlt || "";
 
-                        // --- DEBOUNCE LOCAL ---
-                        console.log(`[BOT LOCAL] Aguardando 7s para agrupar mensagens de ${phone}...`);
-                        await new Promise(r => setTimeout(r, 7000));
+                // Verificação de Grupo
+                const isGroup = remoteJidBase.includes('@g.us') || payload.isGroup || !!messageData.participant || !!payload.participant;
 
-                        // Verificar se é a última
-                        const lastMsgQuery = query(
-                            collection(chatRef, "messages"),
-                            orderBy("timestamp", "desc"),
-                            limit(1)
-                        );
-                        const lastMsgSnap = await getDocs(lastMsgQuery);
-                        const realLast = lastMsgSnap.docs[0]?.data();
+                let finalJid = remoteJidBase;
+                if (!isGroup && remoteJidBase.includes('@lid') && remoteJidAlt) {
+                    finalJid = remoteJidAlt;
+                }
 
-                        if (realLast && !realLast.fromMe && !realLast.isBot && realLast.text !== messageText) {
-                            console.log("[BOT LOCAL] Nova mensagem detectada. Cancelando resposta anterior.");
-                            return;
+                let phone = finalJid.split('@')[0];
+                const pushName = messageData.pushName || payload.pushName || 'Contato';
+
+                // --- NORMALIZAÇÃO DE ID (55+... vs ...) ---
+                if (!isGroup) {
+                    const exactCheck = await getDoc(doc(db, "chats", phone));
+                    if (!exactCheck.exists()) {
+                        let altPhone = null;
+                        if (phone.startsWith('55') && phone.length > 11) {
+                            altPhone = phone.substring(2);
+                        } else if (!phone.startsWith('55') && phone.length >= 10) {
+                            altPhone = '55' + phone;
                         }
 
-                        // BUSCAR HISTÓRICO
-                        const msgQuery = query(
-                            collection(chatRef, "messages"),
-                            orderBy("timestamp", "desc"),
-                            limit(15)
-                        );
-                        const msgSnap = await getDocs(msgQuery);
-                        const history = msgSnap.docs
-                            .map(d => ({
-                                role: (d.data().fromMe || d.data().isBot) ? 'assistant' : 'user',
-                                content: d.data().text || ''
-                            }))
-                            .filter(m => m.content)
-                            .reverse();
-
-                        // BUSCAR DEFINIÇÕES DAS MISSÕES (Campos Personalizados)
-                        let missionInstructions = "";
-                        const missionsData = [];
-                        if (bot.missions && bot.missions.length > 0) {
-                            for (const mId of bot.missions) {
-                                const fDoc = await getDoc(doc(db, "custom_fields", mId));
-                                if (fDoc.exists()) {
-                                    const fData = fDoc.data();
-                                    missionsData.push({ id: mId, label: fData.label, type: fData.type });
-                                    missionInstructions += `- ${fData.label} (ID: ${mId}): ${fData.placeholder || ''}\n`;
-                                }
-                            }
-                        }
-
-                        if (openaiKey) {
-                            const systemPrompt = `Você é um robô de atendimento da ISAN/FGV. Seu papel é conversar naturalmente e EXTRAIR DADOS para o CRM.
-
-VOCÊ POSSUI MISSÕES ESPECÍFICAS DE COLETA:
-${missionInstructions || '- Nenhuma missão configurada.'}
-
-REGRAS TÉCNICAS (OBRIGATÓRIO):
-Sempre que detectar um dado de uma missão, anexe isto ao final da sua resposta:
-###DATA###{"ID_DO_CAMPO": "VALOR"}###ENDDATA###
-
-NÃO ignore isso. Se o usuário disser o nome, cidade ou curso, salve IMEDIATAMENTE usando o formato acima.
-
-INSTRUÇÕES DO ROBÔ: ${bot.prompt}
-BASE DE CONHECIMENTO: ${bot.knowledgeBase}`;
-
-                            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${openaiKey}`
-                                },
-                                body: JSON.stringify({
-                                    model: bot.modelId || 'gpt-4o-mini',
-                                    messages: [
-                                        { role: 'system', content: systemPrompt },
-                                        ...history,
-                                        { role: 'user', content: messageText }
-                                    ],
-                                    max_tokens: 500
-                                })
-                            });
-
-                            const aiData = await response.json();
-                            let aiTextRaw = aiData.choices?.[0]?.message?.content || "";
-
-                            console.log(`[AI RESPONSE]: ${aiTextRaw}`);
-
-                            // EXTRAIR DADOS DO TEXTO DA IA
-                            let extractedData = {};
-                            const dataRegex = /###DATA###(.*?)###ENDDATA###/s;
-                            const match = aiTextRaw.match(dataRegex);
-                            if (match) {
-                                try {
-                                    extractedData = JSON.parse(match[1]);
-                                    console.log('-> DADOS EXTRAÍDOS:', extractedData);
-                                    aiTextRaw = aiTextRaw.replace(dataRegex, "").trim();
-                                } catch (e) {
-                                    console.error("Erro ao parsear JSON da IA:", e);
-                                }
-                            }
-
-                            const aiText = aiTextRaw;
-
-                            if (aiText) {
-                                console.log('-> Resposta gerada pela IA:', aiText);
-                                const n8nUrl = settings.n8nSendUrl;
-                                if (n8nUrl) {
-                                    const n8nRes = await fetch(n8nUrl, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                            telefone: phone,
-                                            nome: bot.name || "Bot FGV",
-                                            mensagem: aiText,
-                                            instance: instanceName,
-                                            isBot: true
-                                        })
-                                    });
-                                    console.log('-> Resposta enviada ao n8n. Status:', n8nRes.status);
-
-                                    await addDoc(collection(chatRef, "messages"), {
-                                        text: aiText,
-                                        sender: bot.name || "Bot",
-                                        fromMe: true,
-                                        isBot: true,
-                                        timestamp: serverTimestamp(),
-                                        type: 'text'
-                                    });
-
-                                    await setDoc(chatRef, {
-                                        lastMessage: aiText,
-                                        updatedAt: serverTimestamp(),
-                                        status: 'bot'
-                                    }, { merge: true });
-
-                                    console.log('-> Resposta do Bot enviada e registrada.');
-
-                                    // ATUALIZAR CAMPOS PERSONALIZADOS NO CONTATO
-                                    if (Object.keys(extractedData).length > 0) {
-                                        console.log('-> Dados extraídos pela IA:', extractedData);
-                                        const contactDoc = await getDoc(contactRef);
-                                        const currentCustomData = contactDoc.exists() ? (contactDoc.data().customData || {}) : {};
-
-                                        await setDoc(contactRef, {
-                                            customData: {
-                                                ...currentCustomData,
-                                                ...extractedData
-                                            },
-                                            updatedAt: serverTimestamp()
-                                        }, { merge: true });
-                                        console.log('-> Campos personalizados atualizados no contato.');
-
-                                        // VERIFICAR SE TODAS AS MISSÕES FORAM CONCLUÍDAS
-                                        if (bot.missions && bot.missions.length > 0) {
-                                            const updatedContactDoc = await getDoc(contactRef);
-                                            const updatedCustomData = updatedContactDoc.data().customData || {};
-                                            const allMissionsComplete = bot.missions.every(mId =>
-                                                updatedCustomData[mId] !== undefined &&
-                                                updatedCustomData[mId] !== null &&
-                                                updatedCustomData[mId] !== ""
-                                            );
-
-                                            if (allMissionsComplete) {
-                                                console.log('--- MISSÕES CONCLUÍDAS! TRANSFERINDO PARA HUMANO ---');
-
-                                                const transferText = "Obrigado pelas informações! Todas as missões foram cumpridas. Vou te transferir agora para um dos nossos atendentes humanos que continuará seu atendimento.";
-
-                                                // Enviar mensagem de transferência via n8n
-                                                if (settings.n8nSendUrl) {
-                                                    await fetch(settings.n8nSendUrl, {
-                                                        method: 'POST',
-                                                        headers: { 'Content-Type': 'application/json' },
-                                                        body: JSON.stringify({
-                                                            telefone: phone,
-                                                            nome: bot.name || "Bot FGV",
-                                                            mensagem: transferText,
-                                                            instance: settings.instance,
-                                                            isBot: true
-                                                        })
-                                                    });
-                                                }
-
-                                                // Registrar mensagem de transferência
-                                                await addDoc(collection(chatRef, "messages"), {
-                                                    text: transferText,
-                                                    sender: bot.name || "Bot",
-                                                    fromMe: true,
-                                                    isBot: true,
-                                                    timestamp: serverTimestamp(),
-                                                    type: 'text'
-                                                });
-
-                                                await setDoc(chatRef, {
-                                                    status: 'atendimento', // Transfere para atendimento humano
-                                                    lastMessage: transferText,
-                                                    updatedAt: serverTimestamp()
-                                                }, { merge: true });
-                                            }
-                                        }
-                                    }
-                                }
+                        if (altPhone) {
+                            const altCheck = await getDoc(doc(db, "chats", altPhone));
+                            if (altCheck.exists()) {
+                                console.log(`[NORMALIZE] Mesclando ${phone} em ${altPhone}`);
+                                phone = altPhone;
                             }
                         }
                     }
-                } catch (botError) {
-                    console.error("Erro no fluxo do Robô Local:", botError);
                 }
+
+                // --- EXTRAÇÃO DE AVATARS ---
+                let chatAvatarUrl = payload.groupAvatarUrl || null;
+                let participantAvatarUrl = payload.avatarUrl || messageData.imgUrl || null;
+                let finalAvatarUrl = isGroup ? chatAvatarUrl : participantAvatarUrl;
+
+                // Fallback Avatar para privados (Evolution API)
+                if (!finalAvatarUrl && !isGroup) {
+                    // (Mantendo lógica existente de busca na Evolution se config existir - simplificado aqui)
+                    // Se necessário, re-implementar a busca aqui ou confiar no cron
+                }
+
+                // --- NOME DO CHAT ---
+                let chatDisplayName = pushName;
+                if (isGroup) {
+                    chatDisplayName = payload.subject || payload.groupName || messageData.subject || data?.subject || payload.subject;
+                    if (!chatDisplayName) {
+                        const existing = await getDoc(doc(db, "chats", phone));
+                        if (existing.exists() && existing.data().name) chatDisplayName = existing.data().name;
+                        else chatDisplayName = `Grupo ${phone.split('@')[0]}`;
+                    }
+                }
+
+                // --- DATA EXTRACTION ---
+                const getMsg = (m) => {
+                    if (!m) return null;
+                    if (typeof m === 'string') return m;
+                    if (m.ephemeralMessage?.message) return getMsg(m.ephemeralMessage.message);
+                    if (m.viewOnceMessage?.message) return getMsg(m.viewOnceMessage.message);
+                    if (m.viewOnceMessageV2?.message) return getMsg(m.viewOnceMessageV2.message);
+                    if (m.documentWithCaptionMessage?.message) return getMsg(m.documentWithCaptionMessage.message);
+
+                    if (m.conversation) return m.conversation;
+                    if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
+                    if (m.text) return m.text;
+
+                    if (m.imageMessage?.caption) return m.imageMessage.caption;
+                    if (m.videoMessage?.caption) return m.videoMessage.caption;
+                    if (m.documentMessage?.caption) return m.documentMessage.caption;
+
+                    return null;
+                };
+
+                // messageObject pode ser o messageData inteiro em alguns casos (Bare payloads)
+                const messageObject = messageData.message || (messageData.extendedTextMessage ? messageData : payloadData.message) || {};
+                const messageText = getMsg(messageObject) || 'Mídia enviada';
+
+                console.log(`[WEBHOOK] Texto extraído (${messageText.length} chars) para ${phone}: ${messageText.substring(0, 50)}...`);
+
+                // Limitar lastMessage para evitar estourar limite do documento no Firestore (1MB)
+                const lastMessageForChat = messageText.length > 2000 ? messageText.substring(0, 2000) + '...' : messageText;
+
+                // --- UPDATING FIRESTORE ---
+                const chatRef = doc(db, "chats", phone);
+                const contactRef = doc(db, "contacts", phone);
+
+                const existingChatSnap = await getDoc(chatRef);
+                const existingChat = existingChatSnap.exists() ? existingChatSnap.data() : null;
+
+                const currentStatus = existingChat?.status || 'concluido';
+                let newStatus = currentStatus;
+
+                // Reabrir chat se nova msg e status 'concluido'
+                if (!existingChat || ['concluido', 'resolvido'].includes(currentStatus)) {
+                    newStatus = 'aguardando';
+                }
+
+                const newUnread = (existingChat?.unreadCount || 0) + 1;
+
+                await setDoc(chatRef, {
+                    id: phone,
+                    name: chatDisplayName,
+                    isGroup: !!isGroup,
+                    remoteJid: remoteJidBase,
+                    avatarUrl: finalAvatarUrl || existingChat?.avatarUrl || null,
+                    updatedAt: serverTimestamp(),
+                    lastMessage: lastMessageForChat,
+                    status: newStatus,
+                    unreadCount: newUnread
+                }, { merge: true });
+
+                await setDoc(contactRef, {
+                    id: phone,
+                    name: chatDisplayName,
+                    isGroup: !!isGroup,
+                    remoteJid: remoteJidBase,
+                    avatarUrl: finalAvatarUrl || null,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+
+                const messageId = key.id || payload.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+                // Identificar Tipo
+                let type = payload.messageType || 'chat';
+                if (messageObject.imageMessage) type = 'image';
+                else if (messageObject.videoMessage) type = 'video';
+                else if (messageObject.audioMessage) type = 'audio';
+                else if (messageObject.documentMessage) type = 'document';
+                else if (messageObject.stickerMessage) type = 'sticker';
+
+                // Mídia Info
+                let mediaUrl = payload.mediaUrl || null;
+                let mimeType = payload.mimeType || null;
+                let fileName = payload.fileName || null;
+
+                if (type === 'image' && messageObject.imageMessage) {
+                    mediaUrl = mediaUrl || messageObject.imageMessage.url;
+                    mimeType = mimeType || messageObject.imageMessage.mimetype;
+                } else if (type === 'video' && messageObject.videoMessage) {
+                    mediaUrl = mediaUrl || messageObject.videoMessage.url;
+                    mimeType = mimeType || messageObject.videoMessage.mimetype;
+                } else if (type === 'audio' && messageObject.audioMessage) {
+                    mediaUrl = mediaUrl || messageObject.audioMessage.url;
+                    mimeType = mimeType || messageObject.audioMessage.mimetype;
+                } else if (type === 'document' && messageObject.documentMessage) {
+                    mediaUrl = mediaUrl || messageObject.documentMessage.url;
+                    mimeType = mimeType || messageObject.documentMessage.mimetype;
+                    fileName = fileName || messageObject.documentMessage.fileName;
+                }
+
+                await setDoc(doc(chatRef, "messages", messageId), {
+                    text: messageText,
+                    sender: isFromMe ? 'me' : phone,
+                    participant: key.participant || payload.participant || null,
+                    pushName: isFromMe ? 'Eu' : pushName,
+                    avatarUrl: participantAvatarUrl,
+                    timestamp: serverTimestamp(), // SERVER TIMESTAMP!
+                    fromMe: isFromMe,
+                    isGroup: !!isGroup,
+                    messageId: messageId,
+                    type: type,
+                    mediaUrl: mediaUrl,
+                    mimeType: mimeType,
+                    fileName: fileName
+                }, { merge: true });
+
+                console.log(`[WEBHOOK] Msg salva: ${messageId} em chats/${phone}`);
+
+            } catch (innerError) {
+                console.error(`[WEBHOOK] Erro processando payload individual:`, innerError);
             }
+        }));
 
-            // 5. Salvar Mensagem na lista geral removido daqui, já salvamos acima.
-            console.log('-> Fluxo de mensagem processado.');
-
-            console.log(`-> Sucesso: Chat [${phone}] atualizado com todas as informações.`);
-        }
-
-        // 3. Processar Atualização de Contato (Avatar, Nome, etc)
-        if (event === 'contacts.update') {
-            console.log('--- ATUALIZAÇÃO DE CONTATO ---');
-            const { id, avatarUrl, name } = data;
-            const phone = id.split('@')[0];
-
-            const chatRef = doc(db, "chats", phone);
-            const contactRef = doc(db, "contacts", phone);
-
-            const updateData = {};
-            if (avatarUrl) updateData.avatarUrl = avatarUrl;
-            if (name) updateData.name = name;
-
-            if (Object.keys(updateData).length > 0) {
-                await setDoc(chatRef, updateData, { merge: true });
-                await setDoc(contactRef, updateData, { merge: true });
-                console.log(`-> Contato [${phone}] atualizado:`, updateData);
-            }
-        }
-
-        res.status(200).send({ status: 'success' });
-    } catch (error) {
-        console.error('Erro ao processar webhook:', error);
-        res.status(500).send({ status: 'error', message: error.message });
+        res.sendStatus(200);
+    } catch (e) {
+        console.error(`[WEBHOOK] ERRO CRÍTICO NO HANDLER:`, e);
+        res.status(500).json({ status: 'error', error: e.message });
     }
 });
 
-app.get('/', (req, res) => {
-    res.send('Servidor de Webhook CRM FGV está Ativo!');
-});
+// --- ROTINA DE LIMPEZA AUTOMÁTICA R2 (24h) ---
+setInterval(async () => {
+    console.log("[CLEANUP] Iniciando rotina automática de limpeza R2...");
+    try {
+        const mockRes = { status: () => ({ json: (data) => console.log("[CLEANUP] Resultado:", data), send: () => { } }) };
+        const mockReq = {
+            method: 'POST',
+            headers: { authorization: `Bearer cv_vpdmp2uusecjze6w0vs6` }
+        };
+        await r2CleanupHandler(mockReq, mockRes);
+    } catch (e) {
+        console.error("[CLEANUP] Erro na limpeza automática:", e);
+    }
+}, 24 * 60 * 60 * 1000);
+// ----------------------------------------------
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 SERVIDOR WEBHOOK ATIVO`);
-    console.log(`Porta: ${PORT}`);
-    console.log(`URL Local: http://localhost:${PORT}/webhook`);
-    console.log(`Aponte o Webhook da Evolution API para: http://SEU_IP_LOCAL:${PORT}/webhook\n`);
-});
+// --- CRON DE SINCRONIZAÇÃO DE FOTOS (30s) ---
+setInterval(async () => {
+    try {
+        // 1. Busca chats sem foto (avatarUrl == null ou vazio)
+        const q = query(
+            collection(db, "chats"),
+            where("avatarUrl", "==", null),
+            limit(5)
+        );
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) return;
+
+        console.log(`[CRON-PHOTO] Verificando ${snapshot.size} perfis sem foto...`);
+
+        for (const chatDoc of snapshot.docs) {
+            const phone = chatDoc.id;
+
+            // Chamar o handler de sincronização que já temos
+            const mockRes = {
+                status: () => ({
+                    json: (data) => {
+                        if (!data) return;
+                        if (data.status === 'not_found') {
+                            setDoc(doc(db, "chats", phone), { avatarUrl: 'não existente' }, { merge: true });
+                            console.log(`[CRON-PHOTO] ${phone}: Foto privada ou inexistente. Marcado.`);
+                        } else if (data.status === 'success') {
+                            console.log(`[CRON-PHOTO] ${phone}: Foto sincronizada com sucesso.`);
+                        }
+                    }, send: () => { }
+                })
+            };
+
+            await coreHandler({
+                method: 'POST',
+                body: { phone },
+                query: { resource: 'sync-profile' },
+                headers: { authorization: `Bearer cv_vpdmp2uusecjze6w0vs6` }
+            }, mockRes);
+        }
+    } catch (e) {
+        console.error("[CRON-PHOTO] Erro na rotina:", e);
+    }
+}, 30000); // 30 segundos
+// ----------------------------------------------
+
+const PORT = process.env.PORT || 3021;
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 WEBHOOK SDR ATIVO NA PORTA ${PORT}`));

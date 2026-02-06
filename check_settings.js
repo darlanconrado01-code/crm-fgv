@@ -14,16 +14,17 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-async function check() {
-    const s = await getDoc(doc(db, "settings", "evolution"));
-    if (s.exists()) {
-        console.log("Settings found:", JSON.stringify(s.data(), null, 2));
+async function checkSettings() {
+    const docRef = doc(db, "settings", "evolution");
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+        console.log("Current Settings:", JSON.stringify(snap.data(), null, 2));
     } else {
-        console.log("Settings evolution NOT FOUND");
+        console.log("Settings document not found!");
     }
 }
 
-check().then(() => process.exit(0)).catch(err => {
+checkSettings().then(() => process.exit(0)).catch(err => {
     console.error(err);
     process.exit(1);
 });
