@@ -89,6 +89,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
     const [isCreatingSmartTask, setIsCreatingSmartTask] = useState(false);
     const [showTaskModal, setShowTaskModal] = useState(false);
     const [taskProjects, setTaskProjects] = useState<any[]>([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState(true);
     const [selectedProjectForTask, setSelectedProjectForTask] = useState<any>(null);
     const [taskModalData, setTaskModalData] = useState<any>({
         title: '',
@@ -226,6 +227,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
                 ...doc.data()
             }));
             setTaskProjects(projectsData);
+            setIsLoadingProjects(false);
+        }, (error) => {
+            console.error("Erro ao carregar projetos:", error);
+            setIsLoadingProjects(false);
         });
         return () => unsubscribe();
     }, []);
@@ -2813,7 +2818,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Projeto</label>
                                         <select
-                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none cursor-pointer"
+                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer text-gray-900"
                                             value={taskModalData.projectId}
                                             onChange={e => {
                                                 const proj = taskProjects.find(p => p.id === e.target.value);
@@ -2825,7 +2830,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
                                                 });
                                             }}
                                         >
-                                            <option value="">Selecione um Projeto</option>
+                                            <option value="">{isLoadingProjects ? 'Carregando Projetos...' : (taskProjects.length === 0 ? 'Nenhum Projeto Encontrado' : 'Selecione um Projeto')}</option>
                                             {taskProjects.map(p => (
                                                 <option key={p.id} value={p.id}>{p.title}</option>
                                             ))}
@@ -2835,7 +2840,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Etapa / Status</label>
                                         <select
-                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none cursor-pointer"
+                                            className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-3.5 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer text-gray-900"
                                             value={taskModalData.column}
                                             onChange={e => setTaskModalData({ ...taskModalData, column: e.target.value })}
                                         >
