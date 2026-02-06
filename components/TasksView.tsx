@@ -284,7 +284,8 @@ const KanbanCard: React.FC<{
     const names = task.assignees && task.assignees.length > 0 ? task.assignees : (task.responsible ? [task.responsible] : []);
     return names.map(name => {
       const user = allUsers.find(u => u.name === name);
-      return { name, avatar: user?.avatar };
+      const isMe = name.toLowerCase() === 'eu' || name.toLowerCase() === 'me';
+      return { name: isMe ? 'Você' : name, avatar: user?.avatar };
     });
   }, [task.responsible, task.assignees, allUsers]);
 
@@ -1492,8 +1493,10 @@ const TasksView: React.FC<{
 
       const matchesMe = !meOnly ||
         t.responsible?.toLowerCase() === currentMemberName.toLowerCase() ||
-        t.assignees?.some(a => a.toLowerCase() === currentMemberName.toLowerCase()) ||
-        t.participants?.some(p => p.toLowerCase() === currentMemberName.toLowerCase()) ||
+        t.responsible?.toLowerCase() === 'eu' ||
+        t.responsible?.toLowerCase() === 'me' ||
+        t.assignees?.some(a => a.toLowerCase() === currentMemberName.toLowerCase() || a.toLowerCase() === 'eu' || a.toLowerCase() === 'me') ||
+        t.participants?.some(p => p.toLowerCase() === currentMemberName.toLowerCase() || p.toLowerCase() === 'eu' || p.toLowerCase() === 'me') ||
         t.responsibleId === user?.uid;
 
       return matchesSearch && matchesResponsible && matchesStatus && matchesMe;
@@ -2080,8 +2083,11 @@ const TasksView: React.FC<{
   const filteredGlobalTasks = globalTasks.filter(t => {
     if (dashboardUserFilter === 'all') return true;
     const targetUser = allUsers.find(u => u.name === dashboardUserFilter);
+    const isActiveUserFiltered = dashboardUserFilter === currentMemberName || (targetUser && targetUser.id === user?.uid);
+
     return t.responsible?.toLowerCase() === dashboardUserFilter.toLowerCase() ||
-      t.assignees?.some(a => a.toLowerCase() === dashboardUserFilter.toLowerCase()) ||
+      (isActiveUserFiltered && (t.responsible?.toLowerCase() === 'eu' || t.responsible?.toLowerCase() === 'me')) ||
+      t.assignees?.some(a => a.toLowerCase() === dashboardUserFilter.toLowerCase() || (isActiveUserFiltered && (a.toLowerCase() === 'eu' || a.toLowerCase() === 'me'))) ||
       (targetUser && t.responsibleId === targetUser.id);
   });
 

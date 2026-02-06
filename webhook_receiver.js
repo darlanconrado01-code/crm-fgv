@@ -420,7 +420,7 @@ app.post('/api/webhook', async (req, res) => {
                     text: messageText,
                     sender: isFromMe ? 'me' : phone,
                     participant: key.participant || payload.participant || null,
-                    pushName: isFromMe ? 'Eu' : pushName,
+                    pushName: isFromMe ? (existingChat?.agent || 'Eu') : pushName,
                     avatarUrl: participantAvatarUrl,
                     timestamp: serverTimestamp(), // SERVER TIMESTAMP!
                     fromMe: isFromMe,

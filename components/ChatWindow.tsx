@@ -1121,7 +1121,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
                 suggestedTitle = taskSuggestion.title || suggestedTitle;
                 // Usar a descrição da IA, mas garantir que os detalhes originais estejam lá se necessário
                 fullDescription = taskSuggestion.description || fullDescription;
-                suggestedResponsible = taskSuggestion.responsible || suggestedResponsible;
+
+                const rawResponsible = taskSuggestion.responsible || suggestedResponsible;
+                // Normalizar 'Eu' ou 'me' para o nome do usuário atual
+                if (rawResponsible && (rawResponsible.toLowerCase() === 'eu' || rawResponsible.toLowerCase() === 'me')) {
+                    suggestedResponsible = currentUser?.displayName || currentUser?.name || 'Agente';
+                } else {
+                    suggestedResponsible = rawResponsible;
+                }
 
                 // Se a IA sugeriu um projeto válido
                 if (taskSuggestion.projectId && taskProjects.some(p => p.id === taskSuggestion.projectId)) {
@@ -1129,6 +1136,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ chatId, contactName, currentUse
                 }
 
                 suggestedColumn = taskSuggestion.column || '';
+            } else if (suggestedResponsible.toLowerCase() === 'eu' || suggestedResponsible.toLowerCase() === 'me') {
+                // Fallback for contact agent being 'Eu'
+                suggestedResponsible = currentUser?.displayName || currentUser?.name || 'Agente';
             }
 
             // Selecionar o projeto sugerido ou o primeiro
